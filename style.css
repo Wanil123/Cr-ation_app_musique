@@ -1,0 +1,224 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+
+body {
+    font-family: 'Roboto', sans-serif;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: url('images/background.jpg') no-repeat center center fixed; 
+    background-size: cover;
+    color: #f5f5f5;
+}
+
+.app-container {
+    width: 100%;
+    margin-top: 1rem;
+    max-width: 900px;
+    padding: 20px;
+    background-color: rgb(41, 40, 40);
+    border-radius: 10px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+}
+
+.home-screen, .player-screen {
+    text-align: center;
+}
+
+.primary-button, .back-button, .control-button {
+    padding: 10px 20px;
+    margin: 10px;
+    background-color: #1db954;
+    color: white;
+    border: none;
+    border-radius: 50px;
+    cursor: pointer;
+    font-size: 1em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.primary-button:hover, .back-button:hover, .control-button:hover {
+    background-color: #1ed760;
+}
+
+.search-bar {
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
+    border: 1px solid #ccc;
+    border-radius: 50px;
+    background-color: #3a3a3c;
+    color: white;
+    font-size: 1em;
+    outline: none;
+}
+
+.search-bar::placeholder {
+    color: #b3b3b3;
+}
+
+.song-list {
+    list-style: none;
+    padding: 0;
+    margin: 10px 0;
+}
+
+.song-item {
+    padding: 10px;
+    margin: 5px 0;
+    background-color: #3a3a3c;
+    border-radius: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    transition: background-color 0.3s;
+}
+
+.song-item:hover {
+    background-color: #4a4a4c;
+}
+
+.song-image {
+    width: 50px;
+    height: 50px;
+    margin-right: 10px;
+    border-radius: 5px;
+}
+
+.song-info {
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+}
+
+.song-title {
+    font-weight: 500;
+}
+
+.song-artist {
+    font-weight: 300;
+    color: #b3b3b3;
+}
+
+.song-duration {
+    font-weight: 300;
+    color: #b3b3b3;
+}
+
+.song-details {
+    text-align: center;
+    margin-top: 20px;
+}
+
+.current-song-image {
+    width: 150px;
+    height: 150px;
+    margin-bottom: 20px;
+    border-radius: 10px;
+}
+
+.controls {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 10px;
+}
+
+.control-button {
+    font-size: 1.5em;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: white;
+    padding: 10px;
+    margin: 0 5px;
+    border-radius: 50%;
+    transition: background-color 0.3s;
+}
+
+.control-button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.progress {
+    width: 80%;
+    background-color: #3a3a3c;
+    border-radius: 5px;
+    overflow: hidden;
+    margin-top: 10px;
+    cursor: pointer;
+    margin-left: 95px;
+}
+
+.progress-bar {
+    height: 10px;
+    background-color: #1db954;
+}
+
+.volume-control {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 10px;
+}
+
+.volume-control label {
+    margin-right: 10px;
+}
+
+.mute-button {
+    margin-left: 10px;
+    font-size: 1.5em;
+    background-color: #f5f5f5;
+    border: none;
+    cursor: pointer;
+    color: #1c1c1e;
+    padding: 10px;
+    border-radius: 50%;
+    transition: background-color 0.3s, color 0.3s;
+}
+
+.mute-button:hover {
+    background-color: #1db954;
+    color: white;
+}
+
+.song-time {
+    margin: 10px 0;
+    font-size: 1.2em;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.song-time span {
+    margin: 0 5px;
+}
+
+.song-tags {
+    text-align: center;
+    margin-top: 10px;
+}
+
+.song-tags h3 {
+    color: #1db954;
+    font-size: 1.1em;
+}
+
+.song-tags ul {
+    list-style-type: none;
+    padding: 0;
+}
+
+.song-tags li {
+    background-color: #3a3a3c;
+    display: inline-block;
+    padding: 5px 10px;
+    margin: 2px;
+    border-radius: 5px;
+    font-size: 0.9em;
+    color: #f5f5f5;
+}

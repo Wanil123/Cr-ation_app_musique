@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>App de Musique</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app" class="app-container">
+        <div v-if="currentPage === 'home'" class="home-screen">
+            <h1> L'application de Musique Du G.O.A.T.<br>Meilleur Que Spotify, AKA C'est le Spotify 2.0!</h1>
+            <button @click="goToPlayer" class="primary-button">Accéder au Lecteur</button>
+        </div>
+        <div v-if="currentPage === 'player'" class="player-screen">
+            <button @click="goBack" class="back-button"><i class="fas fa-arrow-left"></i> Retour à l'accueil</button>
+            <input class="search-bar" type="text" v-model="searchTerm" placeholder="Rechercher des chansons...">
+            <ul class="song-list">
+                <li v-for="song in filteredSongs" :key="song.id" @click="playSong(song)" class="song-item">
+                    <img :src="'images/' + song.image" alt="Song image" class="song-image">
+                    <div class="song-info">
+                        <span class="song-title">{{ song.titre }}</span>
+                        <span class="song-artist">{{ song.artiste }}</span>
+                        <span class="song-duration">{{ formatTime(song.temps) }}</span>
+                    </div>
+                </li>
+            </ul>
+            <div v-if="currentSong" class="song-details">
+                <img :src="'images/' + currentSong.image" alt="Current song image" class="current-song-image">
+                <h2>{{ currentSong.titre }}</h2>
+                <p>{{ currentSong.artiste }}</p>
+                <div class="song-tags">
+                    <h3>Tags:</h3>
+                    <ul>
+                        <li v-for="tag in currentSong.tags" :key="tag">{{ tag }}</li>
+                    </ul>
+                </div>
+                <div class="song-time">
+                    <span>{{ formatTime(currentTime) }}</span>
+                    <span>/</span>
+                    <span>{{ formatTime(currentSong.temps) }}</span>
+                </div>
+                <div 
+                    class="progress" 
+                    @mousedown="startSeeking"
+                    @mousemove="seek"
+                    @mouseup="stopSeeking"
+                    @mouseleave="stopSeeking">
+                    <div class="progress-bar" :style="{ width: (currentTime / currentSong.temps * 100) + '%' }"></div>
+                </div>
+                <div class="controls">
+                    <button @click="togglePlayPause" class="control-button">
+                        <i :class="isPlaying ? 'fas fa-pause' : 'fas fa-play'"></i>
+                    </button>
+                </div>
+                <div class="volume-control">
+                    <label for="volume">Volume:</label>
+                    <input type="range" id="volume" min="0" max="1" step="0.1" v-model="volume" @input="adjustVolume">
+                    <button @click="toggleMute" :style="{ backgroundColor: isMuted ? 'red' : '#f5f5f5', color: isMuted ? 'white' : '#1c1c1e' }" class="mute-button">
+                        <i class="fas fa-volume-mute"></i>
+                    </button>
+                </div>
+            </div>
+            <audio ref="audio" @timeupdate="updateTime" @ended="songEnded"></audio>
+        </div>
+    </div>
+    <script type="module" src="app.js"></script>
+</body>
+</html>
