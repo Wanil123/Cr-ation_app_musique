@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="fr" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="SUSPENDED - Your premium music streaming experience">
+    <meta name="theme-color" content="#0a0a0f">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+    <title>SUSPENDED - Music Player</title>
+
+    <!-- Preconnect for performance -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer">
+
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app" class="app-container" :class="{ 'player-active': currentPage === 'player' }">
+
+        <!-- Loading Screen -->
+        <transition name="fade">
+            <div v-if="isLoading" class="loading-screen">
+                <div class="loader">
+                    <div class="loader-circle"></div>
+                    <div class="loader-circle"></div>
+                    <div class="loader-circle"></div>
+                </div>
+                <p class="loader-text">SUSPENDED</p>
+            </div>
+        </transition>
+
+        <!-- Home Screen -->
+        <transition name="slide-up">
+            <div v-if="currentPage === 'home' && !isLoading" class="home-screen">
+                <div class="home-content">
+                    <div class="logo-container">
+                        <div class="logo-icon">
+                            <i class="fas fa-wave-square"></i>
+                        </div>
+                        <h1 class="logo-text">SUSPENDED</h1>
+                        <p class="tagline">{{ t('tagline') }}</p>
+                    </div>
+
+                    <div class="home-features">
+                        <div class="feature-item">
+                            <i class="fas fa-headphones"></i>
+                            <span>{{ t('feature1') }}</span>
+                        </div>
+                        <div class="feature-item">
+                            <i class="fas fa-infinity"></i>
+                            <span>{{ t('feature2') }}</span>
+                        </div>
+                        <div class="feature-item">
+                            <i class="fas fa-heart"></i>
+                            <span>{{ t('feature3') }}</span>
+                        </div>
+                    </div>
+
+                    <button @click="goToPlayer" class="primary-button" aria-label="Access player">
+                        <span>{{ t('startListening') }}</span>
+                        <i class="fas fa-arrow-right"></i>
+                    </button>
+
+                    <div class="language-toggle home-lang">
+                        <button
+                            @click="setLanguage('fr')"
+                            :class="{ active: currentLang === 'fr' }"
+                            aria-label="Français">
+                            FR
+                        </button>
+                        <button
+                            @click="setLanguage('en')"
+                            :class="{ active: currentLang === 'en' }"
+                            aria-label="English">
+                            EN
+                        </button>
+                    </div>
+                </div>
+
+                <div class="home-background">
+                    <div class="gradient-orb orb-1"></div>
+                    <div class="gradient-orb orb-2"></div>
+                    <div class="gradient-orb orb-3"></div>
+                </div>
+            </div>
+        </transition>
+
+        <!-- Player Screen -->
+        <transition name="slide-up">
+            <div v-if="currentPage === 'player' && !isLoading" class="player-screen">
+
+                <!-- Header -->
+                <header class="player-header">
+                    <button @click="goBack" class="icon-button" :aria-label="t('backHome')">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
+
+                    <h2 class="header-title">{{ t('library') }}</h2>
+
+                    <div class="header-actions">
+                        <div class="language-toggle">
+                            <button
+                                @click="setLanguage('fr')"
+                                :class="{ active: currentLang === 'fr' }">
+                                FR
+                            </button>
+                            <button
+                                @click="setLanguage('en')"
+                                :class="{ active: currentLang === 'en' }">
+                                EN
+                            </button>
+                        </div>
+                    </div>
+                </header>
+
+                <!-- Search Bar -->
+                <div class="search-container">
+                    <i class="fas fa-search search-icon"></i>
+                    <input
+                        type="text"
+                        class="search-bar"
+                        v-model="searchTerm"
+                        :placeholder="t('searchPlaceholder')"
+                        aria-label="Search songs">
+                    <button
+                        v-if="searchTerm"
+                        @click="searchTerm = ''"
+                        class="search-clear"
+                        aria-label="Clear search">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+
+                <!-- Filter Tags -->
+                <div class="filter-section">
+                    <button
+                        class="filter-tag"
+                        :class="{ active: activeFilter === 'all' }"
+                        @click="activeFilter = 'all'">
+                        {{ t('all') }}
+                    </button>
+                    <button
+                        class="filter-tag filter-tag-favorites"
+                        :class="{ active: activeFilter === 'favorites' }"
+                        @click="activeFilter = 'favorites'">
+                        <i class="fas fa-heart"></i>
+                        {{ t('favorites') }}
+                    </button>
+                    <button
+                        v-for="genre in uniqueGenres"
+                        :key="genre"
+                        class="filter-tag"
+                        :class="{ active: activeFilter === genre }"
+                        @click="activeFilter = genre">
+                        {{ genre }}
+                    </button>
+                </div>
+
+                <!-- Song List -->
+                <div class="song-list-container">
+                    <ul class="song-list" role="list">
+                        <li
+                            v-for="(song, index) in filteredSongs"
+                            :key="song.id"
+                            @click="playSong(song)"
+                            class="song-item"
+                            :class="{
+                                'is-playing': currentSong?.id === song.id,
+                                'is-liked': likedSongs.includes(song.id)
+                            }"
+                            role="listitem"
+                            tabindex="0"
+                            @keydown.enter="playSong(song)"
+                            @keydown.space.prevent="playSong(song)">
+
+                            <div class="song-index">
+                                <span class="index-number">{{ index + 1 }}</span>
+                                <i v-if="currentSong?.id === song.id && isPlaying" class="fas fa-volume-high playing-icon"></i>
+                                <i v-else-if="currentSong?.id === song.id" class="fas fa-pause playing-icon"></i>
+                            </div>
+
+                            <div class="song-image-container">
+                                <img
+                                    :src="'images/' + song.image"
+                                    :alt="song.titre + ' - ' + song.artiste"
+                                    class="song-image"
+                                    loading="lazy">
+                                <div class="song-image-overlay">
+                                    <i class="fas fa-play"></i>
+                                </div>
+                            </div>
+
+                            <div class="song-info">
+                                <span class="song-title">{{ song.titre }}</span>
+                                <span class="song-artist">{{ song.artiste }}</span>
+                            </div>
+
+                            <div class="song-actions">
+                                <button
+                                    @click.stop="toggleLike(song.id)"
+                                    class="like-button"
+                                    :class="{ liked: likedSongs.includes(song.id) }"
+                                    :aria-label="likedSongs.includes(song.id) ? 'Remove from favorites' : 'Add to favorites'">
+                                    <i :class="likedSongs.includes(song.id) ? 'fas fa-heart' : 'far fa-heart'"></i>
+                                </button>
+                                <span class="song-duration">{{ formatTime(song.duree) }}</span>
+                            </div>
+                        </li>
+                    </ul>
+
+                    <!-- Empty State -->
+                    <div v-if="filteredSongs.length === 0" class="empty-state">
+                        <i class="fas fa-music"></i>
+                        <p>{{ t('noResults') }}</p>
+                    </div>
+                </div>
+
+                <!-- Now Playing Bar (Mini Player) -->
+                <transition name="slide-up">
+                    <div
+                        v-if="currentSong && !showFullPlayer"
+                        class="mini-player"
+                        @click="showFullPlayer = true">
+
+                        <div class="mini-progress">
+                            <div class="mini-progress-bar" :style="{ width: progressPercent + '%' }"></div>
+                        </div>
+
+                        <img :src="'images/' + currentSong.image" :alt="currentSong.titre" class="mini-image">
+
+                        <div class="mini-info">
+                            <span class="mini-title">{{ currentSong.titre }}</span>
+                            <span class="mini-artist">{{ currentSong.artiste }}</span>
+                        </div>
+
+                        <div class="mini-controls">
+                            <button @click.stop="toggleLike(currentSong.id)" class="mini-like" :class="{ liked: likedSongs.includes(currentSong.id) }">
+                                <i :class="likedSongs.includes(currentSong.id) ? 'fas fa-heart' : 'far fa-heart'"></i>
+                            </button>
+                            <button @click.stop="togglePlayPause" class="mini-play">
+                                <i :class="isPlaying ? 'fas fa-pause' : 'fas fa-play'"></i>
+                            </button>
+                            <button @click.stop="playNext" class="mini-next">
+                                <i class="fas fa-forward"></i>
+                            </button>
+                            <button @click.stop="closeMiniPlayer" class="mini-close" :aria-label="t('close')">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                </transition>
+
+                <!-- Full Screen Player -->
+                <transition name="slide-up">
+                    <div v-if="showFullPlayer && currentSong" class="full-player">
+                        <div class="full-player-bg" :style="{ backgroundImage: 'url(images/' + currentSong.image + ')' }"></div>
+
+                        <div class="full-player-content">
+                            <!-- Header -->
+                            <div class="full-player-header">
+                                <button @click="showFullPlayer = false" class="icon-button">
+                                    <i class="fas fa-chevron-down"></i>
+                                </button>
+                                <div class="full-header-info">
+                                    <span class="playing-from">{{ t('playingFrom') }}</span>
+                                    <span class="playlist-name">{{ t('library') }}</span>
+                                </div>
+                                <button @click="showQueue = !showQueue" class="icon-button" :class="{ active: showQueue }">
+                                    <i class="fas fa-list"></i>
+                                </button>
+                            </div>
+
+                            <!-- Queue Panel -->
+                            <transition name="slide-left">
+                                <div v-if="showQueue" class="queue-panel">
+                                    <h3>{{ t('queue') }}</h3>
+                                    <div class="queue-list">
+                                        <div
+                                            v-for="(song, idx) in queueList"
+                                            :key="'queue-' + song.id + '-' + idx"
+                                            class="queue-item"
+                                            :class="{ current: song.id === currentSong.id }"
+                                            @click="playSong(song)">
+                                            <img :src="'images/' + song.image" :alt="song.titre">
+                                            <div class="queue-item-info">
+                                                <span>{{ song.titre }}</span>
+                                                <span>{{ song.artiste }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </transition>
+
+                            <!-- Album Art -->
+                            <div class="album-art-container" v-show="!showQueue">
+                                <img
+                                    :src="'images/' + currentSong.image"
+                                    :alt="currentSong.titre"
+                                    class="album-art"
+                                    :class="{ 'is-playing': isPlaying }">
+                            </div>
+
+                            <!-- Song Info -->
+                            <div class="full-song-info" v-show="!showQueue">
+                                <div class="song-title-row">
+                                    <div>
+                                        <h2 class="full-title">{{ currentSong.titre }}</h2>
+                                        <p class="full-artist">{{ currentSong.artiste }}</p>
+                                    </div>
+                                    <button
+                                        @click="toggleLike(currentSong.id)"
+                                        class="like-button-full"
+                                        :class="{ liked: likedSongs.includes(currentSong.id) }">
+                                        <i :class="likedSongs.includes(currentSong.id) ? 'fas fa-heart' : 'far fa-heart'"></i>
+                                    </button>
+                                </div>
+
+                                <!-- Tags -->
+                                <div class="song-tags">
+                                    <span v-for="tag in currentSong.tags" :key="tag" class="tag">{{ tag }}</span>
+                                </div>
+                            </div>
+
+                            <!-- Progress Bar -->
+                            <div class="progress-container" v-show="!showQueue">
+                                <div
+                                    class="progress-bar-wrapper"
+                                    ref="progressBar"
+                                    @mousedown="startSeeking"
+                                    @touchstart="startSeekingTouch">
+                                    <div class="progress-bar-bg">
+                                        <div class="progress-bar-fill" :style="{ width: progressPercent + '%' }"></div>
+                                        <div class="progress-bar-handle" :style="{ left: progressPercent + '%' }"></div>
+                                    </div>
+                                </div>
+                                <div class="time-display">
+                                    <span>{{ formatTime(currentTime) }}</span>
+                                    <span>{{ formatTime(duration) }}</span>
+                                </div>
+                            </div>
+
+                            <!-- Main Controls -->
+                            <div class="main-controls" v-show="!showQueue">
+                                <button
+                                    @click="toggleShuffle"
+                                    class="control-btn secondary"
+                                    :class="{ active: isShuffled }"
+                                    :aria-label="t('shuffle')">
+                                    <i class="fas fa-shuffle"></i>
+                                </button>
+
+                                <button @click="playPrevious" class="control-btn" :aria-label="t('previous')">
+                                    <i class="fas fa-backward-step"></i>
+                                </button>
+
+                                <button @click="togglePlayPause" class="control-btn play-btn" :aria-label="isPlaying ? t('pause') : t('play')">
+                                    <i :class="isPlaying ? 'fas fa-pause' : 'fas fa-play'"></i>
+                                </button>
+
+                                <button @click="playNext" class="control-btn" :aria-label="t('next')">
+                                    <i class="fas fa-forward-step"></i>
+                                </button>
+
+                                <button
+                                    @click="toggleRepeat"
+                                    class="control-btn secondary"
+                                    :class="{ active: repeatMode !== 'none' }"
+                                    :aria-label="t('repeat')">
+                                    <i :class="repeatMode === 'one' ? 'fas fa-repeat' : 'fas fa-repeat'"></i>
+                                    <span v-if="repeatMode === 'one'" class="repeat-one-badge">1</span>
+                                </button>
+                            </div>
+
+                            <!-- Volume & Extra Controls -->
+                            <div class="extra-controls" v-show="!showQueue">
+                                <div class="volume-control">
+                                    <button @click="toggleMute" class="volume-btn">
+                                        <i :class="volumeIcon"></i>
+                                    </button>
+                                    <div class="volume-slider-container">
+                                        <input
+                                            type="range"
+                                            class="volume-slider"
+                                            min="0"
+                                            max="1"
+                                            step="0.01"
+                                            :value="volume"
+                                            @input="adjustVolume"
+                                            aria-label="Volume">
+                                        <div class="volume-fill" :style="{ width: (volume * 100) + '%' }"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </transition>
+
+            </div>
+        </transition>
+
+        <!-- Audio Element -->
+        <audio
+            ref="audio"
+            @timeupdate="updateTime"
+            @ended="songEnded"
+            @loadedmetadata="onLoadedMetadata"
+            @canplay="onCanPlay"
+            preload="auto">
+        </audio>
+
+        <!-- Keyboard Shortcuts Toast -->
+        <transition name="fade">
+            <div v-if="showToast" class="toast">
+                {{ toastMessage }}
+            </div>
+        </transition>
+
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>
