@@ -1,9 +1,201 @@
 /**
  * SUSPENDED - Premium Music Player
- * Vue 3 Application with Modern Features
+ * Vue 3 Application with Modern Features & Audio Visualizer
  */
 
 import { createApp } from 'https://unpkg.com/vue@3.4.21/dist/vue.esm-browser.prod.js';
+
+// ============================================
+// Audio Visualizer Engine
+// ============================================
+class AudioVisualizer {
+    constructor() {
+        this.audioContext = null;
+        this.analyser = null;
+        this.source = null;
+        this.canvas = null;
+        this.ctx = null;
+        this.animationId = null;
+        this.dataArray = null;
+        this.connected = false;
+        this.isActive = false;
+    }
+
+    init(audioElement, canvas) {
+        if (this.connected) return;
+        try {
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            this.analyser = this.audioContext.createAnalyser();
+            this.analyser.fftSize = 256;
+            this.analyser.smoothingTimeConstant = 0.8;
+            this.source = this.audioContext.createMediaElementSource(audioElement);
+            this.source.connect(this.analyser);
+            this.analyser.connect(this.audioContext.destination);
+            this.canvas = canvas;
+            this.ctx = canvas.getContext('2d');
+            this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
+            this.connected = true;
+        } catch (e) {
+            console.warn('AudioVisualizer init failed:', e);
+        }
+    }
+
+    resize() {
+        if (!this.canvas) return;
+        const dpr = window.devicePixelRatio || 1;
+        const rect = this.canvas.getBoundingClientRect();
+        this.canvas.width = rect.width * dpr;
+        this.canvas.height = rect.height * dpr;
+        this.ctx.scale(dpr, dpr);
+    }
+
+    start() {
+        if (!this.connected || this.isActive) return;
+        if (this.audioContext.state === 'suspended') {
+            this.audioContext.resume();
+        }
+        this.isActive = true;
+        this.resize();
+        this.draw();
+    }
+
+    stop() {
+        this.isActive = false;
+        if (this.animationId) {
+            cancelAnimationFrame(this.animationId);
+            this.animationId = null;
+        }
+        if (this.ctx && this.canvas) {
+            const rect = this.canvas.getBoundingClientRect();
+            this.ctx.clearRect(0, 0, rect.width, rect.height);
+        }
+    }
+
+    draw() {
+        if (!this.isActive) return;
+        this.animationId = requestAnimationFrame(() => this.draw());
+
+        this.analyser.getByteFrequencyData(this.dataArray);
+
+        const rect = this.canvas.getBoundingClientRect();
+        const width = rect.width;
+        const height = rect.height;
+
+        this.ctx.clearRect(0, 0, width, height);
+
+        const bufferLength = this.analyser.frequencyBinCount;
+        const barCount = Math.min(64, bufferLength);
+        const barWidth = (width / barCount) * 0.7;
+        const gap = (width / barCount) * 0.3;
+
+        for (let i = 0; i < barCount; i++) {
+            const dataIndex = Math.floor(i * bufferLength / barCount);
+            const value = this.dataArray[dataIndex];
+            const barHeight = (value / 255) * height * 0.9;
+
+            const x = i * (barWidth + gap);
+            // Cyan → Blue → Violet → Rose gradient matching new palette
+            const hue = 185 + (i / barCount) * 145;
+            const saturation = 70 + (value / 255) * 20;
+            const lightness = 55 + (value / 255) * 20;
+
+            this.ctx.fillStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${0.6 + (value / 255) * 0.4})`;
+
+            // Rounded bar tops
+            const radius = barWidth / 2;
+            const y = height - barHeight;
+            this.ctx.beginPath();
+            this.ctx.moveTo(x, height);
+            this.ctx.lineTo(x, y + radius);
+            this.ctx.quadraticCurveTo(x, y, x + radius, y);
+            this.ctx.quadraticCurveTo(x + barWidth, y, x + barWidth, y + radius);
+            this.ctx.lineTo(x + barWidth, height);
+            this.ctx.fill();
+
+            // Glow effect
+            this.ctx.shadowColor = `hsla(${hue}, ${saturation}%, ${lightness}%, 0.5)`;
+            this.ctx.shadowBlur = 10;
+            this.ctx.fill();
+            this.ctx.shadowBlur = 0;
+        }
+    }
+
+    destroy() {
+        this.stop();
+        if (this.audioContext) {
+            this.audioContext.close().catch(() => {});
+        }
+        this.connected = false;
+    }
+}
+
+const visualizer = new AudioVisualizer();
+
+// ============================================
+// Deezer API Service (JSONP - no API key needed)
+// ============================================
+function deezerJsonp(url) {
+    return new Promise((resolve, reject) => {
+        const cb = 'dz_' + Date.now() + '_' + Math.floor(Math.random() * 100000);
+        const script = document.createElement('script');
+        const timeout = setTimeout(() => {
+            cleanup();
+            reject(new Error('Deezer API timeout'));
+        }, 10000);
+
+        function cleanup() {
+            clearTimeout(timeout);
+            delete window[cb];
+            if (script.parentNode) script.parentNode.removeChild(script);
+        }
+
+        window[cb] = (data) => {
+            cleanup();
+            resolve(data);
+        };
+
+        script.onerror = () => {
+            cleanup();
+            reject(new Error('Deezer API request failed'));
+        };
+
+        const sep = url.includes('?') ? '&' : '?';
+        script.src = `${url}${sep}output=jsonp&callback=${cb}`;
+        document.head.appendChild(script);
+    });
+}
+
+const DeezerAPI = {
+    baseUrl: 'https://api.deezer.com',
+
+    async search(query, limit = 8) {
+        const url = `${this.baseUrl}/search?q=${encodeURIComponent(query)}&limit=${limit}`;
+        const data = await deezerJsonp(url);
+        return data.data || [];
+    },
+
+    async getChart(limit = 10) {
+        const url = `${this.baseUrl}/chart/0/tracks?limit=${limit}`;
+        const data = await deezerJsonp(url);
+        return data.data || [];
+    },
+
+    mapTrack(track, genre = '') {
+        return {
+            id: track.id,
+            titre: track.title_short || track.title,
+            artiste: track.artist?.name || 'Unknown',
+            album: track.album?.title || '',
+            genre: genre,
+            audio: track.preview || '',
+            image: track.album?.cover_medium || '',
+            imageLarge: track.album?.cover_big || '',
+            duree: track.duration || 30,
+            tags: genre ? [genre] : [],
+            isRemote: true
+        };
+    }
+};
 
 // ============================================
 // Translations / Internationalization
@@ -133,7 +325,33 @@ const app = createApp({
 
             // Shuffle history
             shuffleHistory: [],
-            shuffleIndex: -1
+            shuffleIndex: -1,
+
+            // Visualizer
+            showVisualizer: true,
+
+            // Session save throttle
+            _lastSaveTime: 0,
+
+            // Skeleton loading
+            songsLoaded: false,
+
+            // Floating notes
+            floatingNotes: [],
+
+            // Deezer integration
+            deezerGenres: [
+                { name: 'Rap', query: 'rap francais 2024' },
+                { name: 'Hip-Hop', query: 'hip hop hits 2024' },
+                { name: 'Pop', query: 'pop hits 2024' },
+                { name: 'R&B', query: 'rnb soul 2024' },
+                { name: 'Rock', query: 'rock hits' },
+                { name: 'Électro', query: 'electronic dance 2024' }
+            ],
+            searchDebounceTimer: null,
+            searchResults: [],
+            isSearchingDeezer: false,
+            usingDeezer: false
         };
     },
 
@@ -154,9 +372,14 @@ const app = createApp({
 
         // Filtered and sorted songs
         filteredSongs() {
+            // If live Deezer search returned results, show those
+            if (this.searchTerm.trim() && this.searchResults.length > 0) {
+                return this.searchResults;
+            }
+
             let result = [...this.songs];
 
-            // Filter by search term
+            // Filter by search term (local filter)
             if (this.searchTerm.trim()) {
                 const term = this.searchTerm.toLowerCase().trim();
                 result = result.filter(song => {
@@ -239,23 +462,111 @@ const app = createApp({
         },
 
         // ============================================
-        // Data Fetching
+        // Data Fetching - Deezer API + Local Fallback
         // ============================================
         async fetchSongs() {
             try {
-                const response = await fetch('data/chansons.json');
-                if (!response.ok) throw new Error('Failed to fetch songs');
-                this.songs = await response.json();
+                const allSongs = [];
+                const fetchPromises = this.deezerGenres.map(async (genre) => {
+                    try {
+                        const tracks = await DeezerAPI.search(genre.query, 5);
+                        return tracks
+                            .filter(t => t.preview) // Only tracks with previews
+                            .map(t => DeezerAPI.mapTrack(t, genre.name));
+                    } catch (e) {
+                        console.warn(`Failed to fetch ${genre.name}:`, e);
+                        return [];
+                    }
+                });
+
+                const results = await Promise.allSettled(fetchPromises);
+                results.forEach(result => {
+                    if (result.status === 'fulfilled') {
+                        allSongs.push(...result.value);
+                    }
+                });
+
+                if (allSongs.length > 0) {
+                    this.songs = allSongs;
+                    this.usingDeezer = true;
+                } else {
+                    await this.fetchLocalSongs();
+                }
+                this.songsLoaded = true;
             } catch (error) {
-                console.error('Error fetching songs:', error);
+                console.error('Deezer fetch failed, falling back to local:', error);
+                await this.fetchLocalSongs();
+                this.songsLoaded = true;
+            }
+        },
+
+        async fetchLocalSongs() {
+            try {
+                const response = await fetch('data/chansons.json');
+                if (!response.ok) throw new Error('Failed to fetch local songs');
+                this.songs = await response.json();
+                this.usingDeezer = false;
+            } catch (e) {
+                console.error('Local songs fetch also failed:', e);
                 this.toast('Error loading songs');
             }
+        },
+
+        // URL helpers for remote vs local content
+        getSongImage(song) {
+            if (!song) return '';
+            if (song.isRemote || song.image?.startsWith('http')) return song.image;
+            return 'images/' + song.image;
+        },
+
+        getSongImageLarge(song) {
+            if (!song) return '';
+            if (song.imageLarge) return song.imageLarge;
+            return this.getSongImage(song);
+        },
+
+        getSongAudio(song) {
+            if (!song) return '';
+            if (song.isRemote || song.audio?.startsWith('http')) return song.audio;
+            return 'audio/' + song.audio;
+        },
+
+        // Live search via Deezer
+        onSearchInput() {
+            clearTimeout(this.searchDebounceTimer);
+            const term = this.searchTerm.trim();
+
+            if (!term) {
+                this.searchResults = [];
+                this.isSearchingDeezer = false;
+                return;
+            }
+
+            // Only search Deezer if we're using Deezer (not local fallback)
+            if (!this.usingDeezer) return;
+
+            this.searchDebounceTimer = setTimeout(async () => {
+                if (!this.searchTerm.trim()) return;
+                this.isSearchingDeezer = true;
+                try {
+                    const tracks = await DeezerAPI.search(this.searchTerm, 15);
+                    if (this.searchTerm.trim()) {
+                        this.searchResults = tracks
+                            .filter(t => t.preview)
+                            .map(t => DeezerAPI.mapTrack(t, ''));
+                    }
+                } catch (e) {
+                    console.warn('Deezer search failed:', e);
+                }
+                this.isSearchingDeezer = false;
+            }, 500);
         },
 
         // ============================================
         // Playback Controls
         // ============================================
         async playSong(song) {
+            if (!song) return;
             const audio = this.$refs.audio;
             if (!audio) return;
 
@@ -265,16 +576,32 @@ const app = createApp({
                 return;
             }
 
+            // Abort any pending play operation
+            if (this.isPlaying) {
+                audio.pause();
+            }
+
             this.currentSong = song;
             this.currentSongIndex = this.songs.findIndex(s => s.id === song.id);
             this.currentTime = 0;
 
-            audio.src = `audio/${song.audio}`;
+            audio.src = this.getSongAudio(song);
+            audio.volume = this.isMuted ? 0 : this.volume;
 
             try {
                 await audio.play();
                 this.isPlaying = true;
-                audio.volume = this.isMuted ? 0 : this.volume;
+
+                // Initialize visualizer on first play
+                if (!visualizer.connected) {
+                    const canvas = this.$refs.visualizerCanvas;
+                    if (canvas) {
+                        visualizer.init(audio, canvas);
+                    }
+                }
+                if (this.showVisualizer) {
+                    visualizer.start();
+                }
 
                 // Update Media Session
                 this.updateMediaSession();
@@ -283,9 +610,13 @@ const app = createApp({
                 if (this.isShuffled) {
                     this.addToShuffleHistory(song);
                 }
+
+                // Spawn floating notes
+                this.spawnFloatingNotes();
             } catch (error) {
+                // Ignore AbortError from rapid switching
+                if (error.name === 'AbortError') return;
                 console.error('Playback error:', error);
-                // Handle autoplay restriction
                 if (error.name === 'NotAllowedError') {
                     this.isPlaying = false;
                     this.toast('Click play to start');
@@ -301,12 +632,19 @@ const app = createApp({
                 if (this.isPlaying) {
                     audio.pause();
                     this.isPlaying = false;
+                    visualizer.stop();
                 } else {
                     await audio.play();
                     this.isPlaying = true;
+                    if (!visualizer.connected) {
+                        const canvas = this.$refs.visualizerCanvas;
+                        if (canvas) visualizer.init(audio, canvas);
+                    }
+                    if (this.showVisualizer) visualizer.start();
                 }
                 this.updateMediaSessionState();
             } catch (error) {
+                if (error.name === 'AbortError') return;
                 console.error('Toggle play error:', error);
             }
         },
@@ -339,6 +677,7 @@ const app = createApp({
             this.currentSong = null;
             this.currentTime = 0;
             this.duration = 0;
+            visualizer.stop();
         },
 
         playPrevious() {
@@ -373,8 +712,17 @@ const app = createApp({
                 return;
             }
 
-            if (this.repeatMode === 'all' || this.isShuffled) {
+            if (this.repeatMode === 'all') {
                 this.playNext();
+            } else if (this.isShuffled) {
+                // Shuffle ON but repeat not 'all': check if shuffle queue has more songs
+                const nextSong = this.peekNextShuffleSong();
+                if (nextSong) {
+                    this.playNext();
+                } else {
+                    this.isPlaying = false;
+                    visualizer.stop();
+                }
             } else {
                 // Check if this is the last song
                 const currentIdx = this.songs.findIndex(s => s.id === this.currentSong?.id);
@@ -382,6 +730,7 @@ const app = createApp({
                     this.playNext();
                 } else {
                     this.isPlaying = false;
+                    visualizer.stop();
                 }
             }
         },
@@ -427,6 +776,17 @@ const app = createApp({
             if (this.shuffleHistory.length === 0) {
                 this.initializeShuffleQueue();
             }
+            // Sync shuffle index to the played song's position
+            const idx = this.shuffleHistory.findIndex(s => s.id === song.id);
+            if (idx !== -1) {
+                this.shuffleIndex = idx;
+            }
+        },
+
+        peekNextShuffleSong() {
+            const nextIdx = this.shuffleIndex + 1;
+            if (nextIdx >= this.shuffleHistory.length) return null;
+            return this.shuffleHistory[nextIdx];
         },
 
         getNextShuffleSong() {
@@ -488,6 +848,7 @@ const app = createApp({
                 this.isMuted = false;
             } else {
                 this.previousVolume = this.volume;
+                this.volume = 0;
                 audio.volume = 0;
                 this.isMuted = true;
             }
@@ -613,10 +974,10 @@ const app = createApp({
             navigator.mediaSession.metadata = new MediaMetadata({
                 title: this.currentSong.titre,
                 artist: this.currentSong.artiste,
-                album: 'SUSPENDED',
+                album: this.currentSong.album || 'SUSPENDED',
                 artwork: [
                     {
-                        src: `images/${this.currentSong.image}`,
+                        src: this.getSongImageLarge(this.currentSong),
                         sizes: '512x512',
                         type: 'image/jpeg'
                     }
@@ -717,13 +1078,55 @@ const app = createApp({
                     }
                     break;
                 case 'Escape':
-                    if (this.showFullPlayer) {
-                        this.showFullPlayer = false;
-                    } else if (this.showQueue) {
+                    if (this.showQueue) {
                         this.showQueue = false;
+                    } else if (this.showFullPlayer) {
+                        this.showFullPlayer = false;
                     }
                     break;
             }
+        },
+
+        // ============================================
+        // Animations & Visual Effects
+        // ============================================
+        spawnFloatingNotes() {
+            const notes = ['♪', '♫', '♬', '♩', '🎵'];
+            for (let i = 0; i < 5; i++) {
+                setTimeout(() => {
+                    const note = {
+                        id: Date.now() + i,
+                        symbol: notes[Math.floor(Math.random() * notes.length)],
+                        left: 10 + Math.random() * 80,
+                        delay: Math.random() * 0.5,
+                        duration: 2 + Math.random() * 2
+                    };
+                    this.floatingNotes.push(note);
+                    setTimeout(() => {
+                        const idx = this.floatingNotes.findIndex(n => n.id === note.id);
+                        if (idx !== -1) this.floatingNotes.splice(idx, 1);
+                    }, note.duration * 1000);
+                }, i * 200);
+            }
+        },
+
+        createRipple(event) {
+            const button = event.currentTarget;
+            const circle = document.createElement('span');
+            const diameter = Math.max(button.clientWidth, button.clientHeight);
+            const radius = diameter / 2;
+            const rect = button.getBoundingClientRect();
+
+            circle.style.width = circle.style.height = `${diameter}px`;
+            circle.style.left = `${event.clientX - rect.left - radius}px`;
+            circle.style.top = `${event.clientY - rect.top - radius}px`;
+            circle.classList.add('ripple-effect');
+
+            const existing = button.querySelector('.ripple-effect');
+            if (existing) existing.remove();
+
+            button.appendChild(circle);
+            setTimeout(() => circle.remove(), 600);
         },
 
         // ============================================
@@ -742,9 +1145,14 @@ const app = createApp({
                     // Don't auto-play, just set up the track
                     this.$nextTick(() => {
                         if (this.$refs.audio) {
-                            this.$refs.audio.src = `audio/${song.audio}`;
-                            this.$refs.audio.currentTime = lastTime;
-                            this.currentTime = lastTime;
+                            this.$refs.audio.src = this.getSongAudio(song);
+                            // Wait for metadata before seeking
+                            const seekOnLoad = () => {
+                                this.$refs.audio.currentTime = lastTime;
+                                this.currentTime = lastTime;
+                                this.$refs.audio.removeEventListener('loadedmetadata', seekOnLoad);
+                            };
+                            this.$refs.audio.addEventListener('loadedmetadata', seekOnLoad);
                         }
                     });
                 }
@@ -761,8 +1169,10 @@ const app = createApp({
 
     watch: {
         currentTime() {
-            // Save progress periodically
-            if (Math.floor(this.currentTime) % 5 === 0) {
+            // Save progress every 5 seconds (throttled)
+            const now = Date.now();
+            if (now - this._lastSaveTime > 5000) {
+                this._lastSaveTime = now;
                 this.saveSession();
             }
         }
@@ -802,6 +1212,8 @@ const app = createApp({
         document.removeEventListener('keydown', this.handleKeyboard);
         window.removeEventListener('beforeunload', this.saveSession);
         this.saveSession();
+        visualizer.destroy();
+        this.stopSeeking();
     }
 });
 
