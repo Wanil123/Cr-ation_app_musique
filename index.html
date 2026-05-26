@@ -2,178 +2,223 @@
 <html lang="fr" data-theme="dark">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="SUSPENDED - Your premium music streaming experience">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="description" content="SUSPENDED — Lecteur de musique premium avec visualiseur audio en direct et recherche Deezer. Stream millions of tracks with a beautifully crafted player.">
     <meta name="theme-color" content="#06060b">
+    <meta name="color-scheme" content="dark">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="SUSPENDED">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    <meta name="format-detection" content="telephone=no">
 
-    <title>SUSPENDED - Music Player</title>
+    <!-- Content Security Policy -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://unpkg.com https://api.deezer.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com data:; img-src 'self' https://*.dzcdn.net https://e-cdns-images.dzcdn.net data:; media-src 'self' https://*.dzcdn.net https://cdns-preview-*.dzcdn.net; connect-src 'self' https://api.deezer.com; frame-ancestors 'none'; base-uri 'self'; form-action 'none'; object-src 'none'">
+
+    <title>SUSPENDED — Lecteur de musique</title>
+
+    <!-- Open Graph -->
+    <meta property="og:title" content="SUSPENDED — Premium Music Player">
+    <meta property="og:description" content="Découvrez, visualisez, vibrez. Un lecteur web premium avec visualiseur audio et intégration Deezer.">
+    <meta property="og:type" content="website">
+    <meta property="og:locale" content="fr_FR">
+    <meta property="og:locale:alternate" content="en_US">
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="SUSPENDED — Premium Music Player">
+    <meta name="twitter:description" content="Découvrez, visualisez, vibrez. Lecteur web avec visualiseur et Deezer.">
 
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0%25' stop-color='%2322d3ee'/%3E%3Cstop offset='50%25' stop-color='%236366f1'/%3E%3Cstop offset='100%25' stop-color='%23a78bfa'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='%2306060b'/%3E%3Cpath d='M20 44V24l24-6v22' stroke='url(%23g)' stroke-width='4' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3Ccircle cx='16' cy='44' r='6' fill='url(%23g)'/%3E%3Ccircle cx='40' cy='40' r='6' fill='url(%23g)'/%3E%3C/svg%3E">
+    <link rel="manifest" href="manifest.webmanifest">
 
     <!-- Preconnect for performance -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://api.deezer.com">
+    <link rel="modulepreload" href="https://unpkg.com/vue@3.4.21/dist/vue.esm-browser.prod.js" crossorigin>
 
     <!-- Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
 
-    <!-- Icons -->
+    <!-- Icons (with SRI) -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA==" crossorigin="anonymous" referrerpolicy="no-referrer">
 
     <!-- Stylesheet -->
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <noscript>
+        <div style="padding:2rem;text-align:center;color:#f0f0f5;background:#06060b;font-family:system-ui,sans-serif;min-height:100vh;display:flex;flex-direction:column;justify-content:center;align-items:center;">
+            <h1 style="font-size:2rem;margin-bottom:1rem;">SUSPENDED</h1>
+            <p>JavaScript is required to run this music player.</p>
+            <p>Veuillez activer JavaScript pour utiliser le lecteur.</p>
+        </div>
+    </noscript>
+
     <div id="app" class="app-container" :class="{ 'player-active': currentPage === 'player' }">
 
-        <!-- Global Grain Overlay -->
+        <!-- Skip link for keyboard users -->
+        <a href="#main-content" class="skip-link">{{ t('skipToContent') }}</a>
+
+        <!-- Global grain overlay (decorative) -->
         <div class="grain-overlay" aria-hidden="true"></div>
 
-        <!-- Loading Screen -->
+        <!-- Live region for screen readers -->
+        <div class="sr-only" aria-live="polite" aria-atomic="true">{{ announceMessage }}</div>
+
+        <!-- Loading screen -->
         <transition name="fade">
-            <div v-if="isLoading" class="loading-screen">
-                <div class="loader">
+            <div v-if="isLoading" class="loading-screen" role="status" :aria-label="currentLang === 'fr' ? 'Chargement' : 'Loading'">
+                <div class="loader" aria-hidden="true">
                     <div class="loader-circle"></div>
                     <div class="loader-circle"></div>
                     <div class="loader-circle"></div>
                 </div>
-                <p class="loader-text">SUSPENDED</p>
-                <div class="loader-line">
+                <p class="loader-text" aria-hidden="true">SUSPENDED</p>
+                <div class="loader-line" aria-hidden="true">
                     <div class="loader-line-fill"></div>
                 </div>
             </div>
         </transition>
 
-        <!-- Home Screen -->
-        <transition name="slide-up">
-            <div v-if="currentPage === 'home' && !isLoading" class="home-screen">
+        <!-- Home screen -->
+        <transition name="slide-up" mode="out-in">
+            <main v-if="currentPage === 'home' && !isLoading" id="main-content" class="home-screen" aria-labelledby="home-title">
                 <div class="home-content">
                     <div class="logo-container">
-                        <div class="logo-icon">
+                        <div class="logo-icon" aria-hidden="true">
                             <i class="fas fa-wave-square"></i>
                         </div>
-                        <h1 class="logo-text">SUSPENDED</h1>
+                        <h1 id="home-title" class="logo-text">SUSPENDED</h1>
                         <p class="tagline">{{ t('tagline') }}</p>
                     </div>
 
-                    <div class="home-features">
-                        <div class="feature-item">
-                            <i class="fas fa-headphones"></i>
+                    <div class="home-features" role="list">
+                        <div class="feature-item" role="listitem">
+                            <i class="fas fa-wave-square" aria-hidden="true"></i>
                             <span>{{ t('feature1') }}</span>
                         </div>
-                        <div class="feature-item">
-                            <i class="fas fa-infinity"></i>
+                        <div class="feature-item" role="listitem">
+                            <i class="fas fa-magnifying-glass" aria-hidden="true"></i>
                             <span>{{ t('feature2') }}</span>
                         </div>
-                        <div class="feature-item">
-                            <i class="fas fa-heart"></i>
+                        <div class="feature-item" role="listitem">
+                            <i class="fas fa-heart" aria-hidden="true"></i>
                             <span>{{ t('feature3') }}</span>
                         </div>
                     </div>
 
-                    <button @click="goToPlayer" class="primary-button" aria-label="Access player">
+                    <button @click="goToPlayer" class="primary-button" type="button" :aria-label="t('accessPlayer')">
                         <span>{{ t('startListening') }}</span>
-                        <i class="fas fa-arrow-right"></i>
+                        <i class="fas fa-arrow-right" aria-hidden="true"></i>
                     </button>
 
-                    <div class="language-toggle home-lang">
-                        <button
-                            @click="setLanguage('fr')"
-                            :class="{ active: currentLang === 'fr' }"
-                            aria-label="Français">
-                            FR
-                        </button>
-                        <button
-                            @click="setLanguage('en')"
-                            :class="{ active: currentLang === 'en' }"
-                            aria-label="English">
-                            EN
-                        </button>
+                    <div class="language-toggle home-lang" role="group" :aria-label="currentLang === 'fr' ? 'Langue' : 'Language'">
+                        <button type="button" @click="setLanguage('fr')" :class="{ active: currentLang === 'fr' }" :aria-pressed="currentLang === 'fr'" aria-label="Français">FR</button>
+                        <button type="button" @click="setLanguage('en')" :class="{ active: currentLang === 'en' }" :aria-pressed="currentLang === 'en'" aria-label="English">EN</button>
                     </div>
                 </div>
 
-                <div class="home-background">
+                <div class="home-background" aria-hidden="true">
                     <div class="gradient-orb orb-1"></div>
                     <div class="gradient-orb orb-2"></div>
                     <div class="gradient-orb orb-3"></div>
-                    <div class="grid-lines" aria-hidden="true"></div>
+                    <div class="grid-lines"></div>
                 </div>
-            </div>
+            </main>
         </transition>
 
-        <!-- Player Screen -->
-        <transition name="slide-up">
-            <div v-if="currentPage === 'player' && !isLoading" class="player-screen">
+        <!-- Player screen -->
+        <transition name="slide-up" mode="out-in">
+            <main v-if="currentPage === 'player' && !isLoading" id="main-content" class="player-screen" aria-labelledby="player-title">
+
+                <h1 id="player-title" class="sr-only">{{ t('library') }}</h1>
 
                 <!-- Header -->
                 <header class="player-header">
-                    <button @click="goBack" class="icon-button" :aria-label="t('backHome')">
-                        <i class="fas fa-chevron-left"></i>
+                    <button type="button" @click="goBack" class="icon-button" :aria-label="t('backHome')">
+                        <i class="fas fa-chevron-left" aria-hidden="true"></i>
                     </button>
 
                     <h2 class="header-title">{{ t('library') }}</h2>
 
                     <div class="header-actions">
-                        <div class="language-toggle">
-                            <button
-                                @click="setLanguage('fr')"
-                                :class="{ active: currentLang === 'fr' }"
-                                aria-label="Français">
-                                FR
-                            </button>
-                            <button
-                                @click="setLanguage('en')"
-                                :class="{ active: currentLang === 'en' }"
-                                aria-label="English">
-                                EN
-                            </button>
+                        <button type="button" @click="showShortcuts = true" class="icon-button" :aria-label="t('shortcutsHelp')" :title="t('shortcutsHelp')">
+                            <i class="fas fa-keyboard" aria-hidden="true"></i>
+                        </button>
+                        <div class="language-toggle" role="group" :aria-label="currentLang === 'fr' ? 'Langue' : 'Language'">
+                            <button type="button" @click="setLanguage('fr')" :class="{ active: currentLang === 'fr' }" :aria-pressed="currentLang === 'fr'" aria-label="Français">FR</button>
+                            <button type="button" @click="setLanguage('en')" :class="{ active: currentLang === 'en' }" :aria-pressed="currentLang === 'en'" aria-label="English">EN</button>
                         </div>
                     </div>
                 </header>
 
-                <!-- Search Bar -->
-                <div class="search-container">
-                    <i class="fas fa-search search-icon"></i>
+                <!-- Deezer fallback banner -->
+                <transition name="fade">
+                    <div v-if="deezerLoadFailed && songsLoaded" class="banner banner-warning" role="status">
+                        <i class="fas fa-info-circle" aria-hidden="true"></i>
+                        <span>{{ t('deezerUnavailable') }}</span>
+                        <button type="button" @click="retryDeezer" class="banner-action">{{ t('retry') }}</button>
+                    </div>
+                </transition>
+
+                <!-- Search -->
+                <div class="search-container" role="search">
+                    <label for="song-search" class="sr-only">{{ t('searchSongs') }}</label>
+                    <i class="fas fa-search search-icon" aria-hidden="true"></i>
                     <input
-                        type="text"
+                        id="song-search"
+                        type="search"
                         class="search-bar"
                         v-model="searchTerm"
                         @input="onSearchInput"
-                        :placeholder="usingDeezer ? (currentLang === 'fr' ? 'Rechercher sur Deezer...' : 'Search on Deezer...') : t('searchPlaceholder')"
-                        aria-label="Search songs">
-                    <span v-if="isSearchingDeezer" class="search-spinner">
+                        :placeholder="usingDeezer ? t('searchPlaceholderDeezer') : t('searchPlaceholder')"
+                        :aria-label="t('searchSongs')"
+                        autocomplete="off"
+                        enterkeyhint="search"
+                        spellcheck="false">
+                    <span v-if="isSearchingDeezer" class="search-spinner" aria-hidden="true">
                         <i class="fas fa-spinner fa-spin"></i>
                     </span>
                     <button
-                        v-if="searchTerm"
-                        @click="searchTerm = ''; searchResults = []"
+                        v-else-if="searchTerm"
+                        type="button"
+                        @click="clearSearch"
                         class="search-clear"
-                        aria-label="Clear search">
-                        <i class="fas fa-times"></i>
+                        :aria-label="t('clearSearch')">
+                        <i class="fas fa-times" aria-hidden="true"></i>
                     </button>
                 </div>
 
-                <!-- Filter Tags -->
-                <div class="filter-section">
+                <!-- Filter tags -->
+                <div class="filter-section" role="radiogroup" :aria-label="currentLang === 'fr' ? 'Filtrer par genre' : 'Filter by genre'">
                     <button
+                        type="button"
+                        role="radio"
+                        :aria-checked="activeFilter === 'all'"
                         class="filter-tag"
                         :class="{ active: activeFilter === 'all' }"
                         @click="activeFilter = 'all'">
                         {{ t('all') }}
                     </button>
                     <button
+                        type="button"
+                        role="radio"
+                        :aria-checked="activeFilter === 'favorites'"
                         class="filter-tag filter-tag-favorites"
                         :class="{ active: activeFilter === 'favorites' }"
                         @click="activeFilter = 'favorites'">
-                        <i class="fas fa-heart"></i>
+                        <i class="fas fa-heart" aria-hidden="true"></i>
                         {{ t('favorites') }}
                     </button>
                     <button
                         v-for="genre in uniqueGenres"
                         :key="genre"
+                        type="button"
+                        role="radio"
+                        :aria-checked="activeFilter === genre"
                         class="filter-tag"
                         :class="{ active: activeFilter === genre }"
                         @click="activeFilter = genre">
@@ -181,8 +226,8 @@
                     </button>
                 </div>
 
-                <!-- Skeleton Loading -->
-                <div v-if="!songsLoaded" class="song-list-container">
+                <!-- Skeleton loading -->
+                <div v-if="!songsLoaded" class="song-list-container" aria-hidden="true">
                     <div class="skeleton-list">
                         <div v-for="n in 6" :key="'skeleton-' + n" class="skeleton-item" :style="{ animationDelay: (n * 0.1) + 's' }">
                             <div class="skeleton-index"></div>
@@ -196,168 +241,198 @@
                     </div>
                 </div>
 
-                <!-- Song List -->
+                <!-- Song list -->
                 <div v-else class="song-list-container">
                     <ul class="song-list" role="list">
                         <li
                             v-for="(song, index) in filteredSongs"
                             :key="song.id"
-                            @click="playSong(song)"
-                            class="song-item song-item-animate"
-                            :class="{
-                                'is-playing': currentSong?.id === song.id,
-                                'is-liked': likedSongs.includes(song.id)
-                            }"
-                            :style="{ animationDelay: (index * 0.05) + 's' }"
-                            role="listitem"
-                            tabindex="0"
-                            @keydown.enter="playSong(song)"
-                            @keydown.space.prevent="playSong(song)">
+                            class="song-item-li">
+                            <div
+                                @click="playSong(song)"
+                                @keydown.enter="playSong(song)"
+                                @keydown.space.prevent="playSong(song)"
+                                class="song-item song-item-animate"
+                                :class="{
+                                    'is-playing': currentSong?.id === song.id,
+                                    'is-liked': likedSongs.includes(song.id)
+                                }"
+                                :style="{ animationDelay: Math.min(index * 0.04, 0.6) + 's' }"
+                                role="button"
+                                tabindex="0"
+                                :aria-label="t('playSong', { title: song.titre, artist: song.artiste })"
+                                :aria-current="currentSong?.id === song.id ? 'true' : null">
 
-                            <div class="song-index">
-                                <span class="index-number">{{ index + 1 }}</span>
-                                <div v-if="currentSong?.id === song.id && isPlaying" class="equalizer-bars">
-                                    <span></span><span></span><span></span>
+                                <div class="song-index" aria-hidden="true">
+                                    <span class="index-number">{{ index + 1 }}</span>
+                                    <div v-if="currentSong?.id === song.id && isPlaying" class="equalizer-bars">
+                                        <span></span><span></span><span></span>
+                                    </div>
+                                    <i v-else-if="currentSong?.id === song.id" class="fas fa-pause playing-icon"></i>
                                 </div>
-                                <i v-else-if="currentSong?.id === song.id" class="fas fa-pause playing-icon"></i>
-                            </div>
 
-                            <div class="song-image-container">
-                                <img
-                                    :src="getSongImage(song)"
-                                    :alt="song.titre + ' - ' + song.artiste"
-                                    class="song-image"
-                                    loading="lazy">
-                                <div class="song-image-overlay">
-                                    <i class="fas fa-play"></i>
+                                <div class="song-image-container">
+                                    <img
+                                        :src="getSongImage(song)"
+                                        :alt="''"
+                                        role="presentation"
+                                        class="song-image"
+                                        width="56"
+                                        height="56"
+                                        loading="lazy"
+                                        decoding="async">
+                                    <div class="song-image-overlay" aria-hidden="true">
+                                        <i class="fas fa-play"></i>
+                                    </div>
                                 </div>
-                            </div>
 
-                            <div class="song-info">
-                                <span class="song-title">{{ song.titre }}</span>
-                                <span class="song-artist">{{ song.artiste }}</span>
-                            </div>
+                                <div class="song-info">
+                                    <span class="song-title">{{ song.titre }}</span>
+                                    <span class="song-artist">{{ song.artiste }}</span>
+                                </div>
 
-                            <div class="song-actions">
-                                <button
-                                    @click.stop="toggleLike(song.id)"
-                                    class="like-button"
-                                    :class="{ liked: likedSongs.includes(song.id) }"
-                                    :aria-label="likedSongs.includes(song.id) ? 'Remove from favorites' : 'Add to favorites'">
-                                    <i :class="likedSongs.includes(song.id) ? 'fas fa-heart' : 'far fa-heart'"></i>
-                                </button>
-                                <span class="song-duration">{{ formatTime(song.duree) }}</span>
+                                <div class="song-actions">
+                                    <button
+                                        type="button"
+                                        @click.stop="toggleLike(song.id)"
+                                        @keydown.enter.stop="toggleLike(song.id)"
+                                        @keydown.space.stop.prevent="toggleLike(song.id)"
+                                        class="like-button"
+                                        :class="{ liked: likedSongs.includes(song.id) }"
+                                        :aria-pressed="likedSongs.includes(song.id)"
+                                        :aria-label="likedSongs.includes(song.id) ? t('removeFromFavorites') : t('addToFavorites')">
+                                        <i :class="likedSongs.includes(song.id) ? 'fas fa-heart' : 'far fa-heart'" aria-hidden="true"></i>
+                                    </button>
+                                    <span class="song-duration">{{ formatTime(song.duree) }}</span>
+                                </div>
                             </div>
                         </li>
                     </ul>
 
-                    <!-- Empty State -->
-                    <div v-if="filteredSongs.length === 0 && !isSearchingDeezer" class="empty-state">
-                        <i class="fas fa-music"></i>
-                        <p>{{ t('noResults') }}</p>
+                    <!-- Empty state -->
+                    <div
+                        v-if="filteredSongs.length === 0 && !isSearchingDeezer"
+                        class="empty-state"
+                        role="status"
+                        aria-live="polite">
+                        <i :class="activeFilter === 'favorites' ? 'fas fa-heart' : 'fas fa-music'" aria-hidden="true"></i>
+                        <p>{{ activeFilter === 'favorites' ? t('noFavorites') : t('noResults') }}</p>
                     </div>
 
-                    <!-- Deezer Attribution -->
+                    <!-- Deezer attribution -->
                     <div v-if="usingDeezer" class="deezer-attribution">
-                        <span>{{ currentLang === 'fr' ? 'Propulsé par' : 'Powered by' }}</span>
-                        <svg class="deezer-logo" viewBox="0 0 120 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-label="Deezer">
-                            <text x="0" y="16" fill="currentColor" font-family="Inter, sans-serif" font-size="16" font-weight="700" letter-spacing="1">DEEZER</text>
+                        <span>{{ t('poweredBy') }}</span>
+                        <svg class="deezer-logo" role="img" aria-label="Deezer" viewBox="0 0 120 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <text aria-hidden="true" x="0" y="16" fill="currentColor" font-family="Inter, sans-serif" font-size="16" font-weight="700" letter-spacing="1">DEEZER</text>
                         </svg>
-                        <span class="preview-badge">30s {{ currentLang === 'fr' ? 'aperçu' : 'preview' }}</span>
+                        <span class="preview-badge">{{ t('previewBadge') }}</span>
                     </div>
                 </div>
 
-                <!-- Now Playing Bar (Mini Player) -->
+                <!-- Mini player -->
                 <transition name="slide-up">
                     <div
                         v-if="currentSong && !showFullPlayer"
                         class="mini-player"
-                        @click="showFullPlayer = true">
+                        role="region"
+                        :aria-label="t('openPlayer')">
 
-                        <div class="mini-progress">
-                            <div class="mini-progress-bar" :style="{ width: progressPercent + '%' }"></div>
+                        <div class="mini-progress" aria-hidden="true">
+                            <div class="mini-progress-bar" :style="{ transform: 'scaleX(' + (progressPercent / 100) + ')' }"></div>
                         </div>
 
-                        <img :src="getSongImage(currentSong)" :alt="currentSong.titre" class="mini-image">
-
-                        <div class="mini-info">
-                            <span class="mini-title">{{ currentSong.titre }}</span>
-                            <span class="mini-artist">{{ currentSong.artiste }}</span>
-                        </div>
+                        <button
+                            type="button"
+                            class="mini-clickable"
+                            @click="showFullPlayer = true"
+                            :aria-label="t('openPlayer')">
+                            <img :src="getSongImage(currentSong)" alt="" role="presentation" class="mini-image" width="52" height="52">
+                            <div class="mini-info">
+                                <span class="mini-title">{{ currentSong.titre }}</span>
+                                <span class="mini-artist">{{ currentSong.artiste }}</span>
+                            </div>
+                        </button>
 
                         <div class="mini-controls">
-                            <button @click.stop="toggleLike(currentSong.id)" class="mini-like" :class="{ liked: likedSongs.includes(currentSong.id) }" aria-label="Toggle favorite">
-                                <i :class="likedSongs.includes(currentSong.id) ? 'fas fa-heart' : 'far fa-heart'"></i>
+                            <button type="button" @click.stop="toggleLike(currentSong.id)" class="mini-like" :class="{ liked: likedSongs.includes(currentSong.id) }" :aria-pressed="likedSongs.includes(currentSong.id)" :aria-label="likedSongs.includes(currentSong.id) ? t('removeFromFavorites') : t('addToFavorites')">
+                                <i :class="likedSongs.includes(currentSong.id) ? 'fas fa-heart' : 'far fa-heart'" aria-hidden="true"></i>
                             </button>
-                            <button @click.stop="togglePlayPause" class="mini-play" :aria-label="isPlaying ? 'Pause' : 'Play'">
-                                <i :class="isPlaying ? 'fas fa-pause' : 'fas fa-play'"></i>
+                            <button type="button" @click.stop="togglePlayPause" class="mini-play" :aria-label="isPlaying ? t('pause') : t('play')">
+                                <i :class="isPlaying ? 'fas fa-pause' : 'fas fa-play'" aria-hidden="true"></i>
                             </button>
-                            <button @click.stop="playNext" class="mini-next" aria-label="Next track">
-                                <i class="fas fa-forward"></i>
+                            <button type="button" @click.stop="playNext" class="mini-next" :aria-label="t('nextTrack')">
+                                <i class="fas fa-forward" aria-hidden="true"></i>
                             </button>
-                            <button @click.stop="closeMiniPlayer" class="mini-close" :aria-label="t('close')">
-                                <i class="fas fa-times"></i>
+                            <button type="button" @click.stop="closeMiniPlayer" class="mini-close" :aria-label="t('stopPlayback')" :title="t('stopPlayback')">
+                                <i class="fas fa-times" aria-hidden="true"></i>
                             </button>
                         </div>
                     </div>
                 </transition>
 
-                <!-- Full Screen Player -->
+                <!-- Full screen player (modal dialog) -->
                 <transition name="slide-up">
-                    <div v-if="showFullPlayer && currentSong" class="full-player">
-                        <div class="full-player-bg" :style="{ backgroundImage: 'url(' + getSongImageLarge(currentSong) + ')' }"></div>
+                    <div
+                        v-if="showFullPlayer && currentSong"
+                        class="full-player"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="full-player-title">
+                        <div class="full-player-bg" :style="{ backgroundImage: 'url(' + getSongImageLarge(currentSong) + ')' }" aria-hidden="true"></div>
 
                         <div class="full-player-content">
                             <!-- Header -->
                             <div class="full-player-header">
-                                <button @click="showFullPlayer = false" class="icon-button" aria-label="Close player">
-                                    <i class="fas fa-chevron-down"></i>
+                                <button type="button" @click="showFullPlayer = false" class="icon-button" :aria-label="t('closePlayer')">
+                                    <i class="fas fa-chevron-down" aria-hidden="true"></i>
                                 </button>
                                 <div class="full-header-info">
                                     <span class="playing-from">{{ t('playingFrom') }}</span>
                                     <span class="playlist-name">{{ t('library') }}</span>
                                 </div>
-                                <button @click="showQueue = !showQueue" class="icon-button" :class="{ active: showQueue }" aria-label="Toggle queue">
-                                    <i class="fas fa-list"></i>
+                                <button type="button" @click="showQueue = !showQueue" class="icon-button" :class="{ active: showQueue }" :aria-pressed="showQueue" :aria-label="t('toggleQueue')">
+                                    <i class="fas fa-list" aria-hidden="true"></i>
                                 </button>
                             </div>
 
-                            <!-- Queue Panel -->
+                            <!-- Queue panel -->
                             <transition name="slide-left">
-                                <div v-if="showQueue" class="queue-panel">
+                                <div v-if="showQueue" class="queue-panel" role="region" :aria-label="t('queue')">
                                     <h3>{{ t('queue') }}</h3>
-                                    <div class="queue-list">
-                                        <div
+                                    <div class="queue-list" role="list">
+                                        <button
                                             v-for="(song, idx) in queueList"
-                                            :key="'queue-' + song.id + '-' + idx"
+                                            :key="'queue-' + song.id"
+                                            type="button"
                                             class="queue-item"
                                             :class="{ current: song.id === currentSong.id }"
+                                            :aria-current="song.id === currentSong.id ? 'true' : null"
                                             @click="playSong(song)">
-                                            <img :src="getSongImage(song)" :alt="song.titre">
+                                            <img :src="getSongImage(song)" alt="" role="presentation" width="42" height="42">
                                             <div class="queue-item-info">
                                                 <span>{{ song.titre }}</span>
                                                 <span>{{ song.artiste }}</span>
                                             </div>
-                                        </div>
+                                        </button>
                                     </div>
                                 </div>
                             </transition>
 
-                            <!-- Album Art with Visualizer -->
+                            <!-- Album art -->
                             <div class="album-art-section" v-show="!showQueue">
                                 <div class="album-art-container">
-                                    <img
-                                        :src="getSongImageLarge(currentSong)"
-                                        :alt="currentSong.titre"
-                                        class="album-art"
-                                        :class="{ 'is-playing': isPlaying }">
-                                    <!-- Vinyl ring effect -->
-                                    <div class="album-vinyl-ring" :class="{ 'is-playing': isPlaying }"></div>
+                                    <button type="button" @click="togglePlayPause" class="album-art-btn" :aria-label="isPlaying ? t('pause') : t('play')">
+                                        <img
+                                            :src="getSongImageLarge(currentSong)"
+                                            alt=""
+                                            role="presentation"
+                                            class="album-art"
+                                            :class="{ 'is-playing': isPlaying }">
+                                    </button>
+                                    <div class="album-vinyl-ring" :class="{ 'is-playing': isPlaying }" aria-hidden="true"></div>
                                 </div>
-                                <!-- Audio Visualizer -->
-                                <canvas ref="visualizerCanvas" class="visualizer-canvas" :class="{ active: isPlaying }"></canvas>
-                                <!-- Floating Notes -->
-                                <div class="floating-notes-container">
+                                <canvas ref="visualizerCanvas" class="visualizer-canvas" :class="{ active: isPlaying }" aria-hidden="true"></canvas>
+                                <div class="floating-notes-container" aria-hidden="true">
                                     <span
                                         v-for="note in floatingNotes"
                                         :key="note.id"
@@ -372,82 +447,99 @@
                                 </div>
                             </div>
 
-                            <!-- Song Info -->
+                            <!-- Song info -->
                             <div class="full-song-info" v-show="!showQueue">
                                 <div class="song-title-row">
-                                    <div>
-                                        <h2 class="full-title">{{ currentSong.titre }}</h2>
+                                    <div class="full-song-text">
+                                        <h2 id="full-player-title" class="full-title">{{ currentSong.titre }}</h2>
                                         <p class="full-artist">{{ currentSong.artiste }}</p>
                                     </div>
                                     <button
+                                        type="button"
                                         @click="toggleLike(currentSong.id)"
                                         class="like-button-full"
-                                        :class="{ liked: likedSongs.includes(currentSong.id) }">
-                                        <i :class="likedSongs.includes(currentSong.id) ? 'fas fa-heart' : 'far fa-heart'"></i>
+                                        :class="{ liked: likedSongs.includes(currentSong.id) }"
+                                        :aria-pressed="likedSongs.includes(currentSong.id)"
+                                        :aria-label="likedSongs.includes(currentSong.id) ? t('removeFromFavorites') : t('addToFavorites')">
+                                        <i :class="likedSongs.includes(currentSong.id) ? 'fas fa-heart' : 'far fa-heart'" aria-hidden="true"></i>
                                     </button>
                                 </div>
 
-                                <!-- Tags -->
-                                <div class="song-tags">
-                                    <span v-for="tag in currentSong.tags" :key="tag" class="tag">{{ tag }}</span>
-                                </div>
+                                <ul class="song-tags" role="list" v-if="currentSong.tags && currentSong.tags.length">
+                                    <li v-for="tag in currentSong.tags" :key="tag" class="tag">{{ tag }}</li>
+                                </ul>
                             </div>
 
-                            <!-- Progress Bar -->
+                            <!-- Progress (slider) -->
                             <div class="progress-container" v-show="!showQueue">
                                 <div
                                     class="progress-bar-wrapper"
                                     ref="progressBar"
+                                    role="slider"
+                                    tabindex="0"
+                                    :aria-label="t('seek')"
+                                    :aria-valuemin="0"
+                                    :aria-valuemax="Math.floor(duration) || 0"
+                                    :aria-valuenow="Math.floor(currentTime) || 0"
+                                    :aria-valuetext="formatTime(currentTime) + ' / ' + formatTime(duration)"
                                     @mousedown="startSeeking"
-                                    @touchstart="startSeekingTouch">
+                                    @touchstart.passive="startSeekingTouch"
+                                    @keydown.left.prevent="seekByKeyboard(-5)"
+                                    @keydown.right.prevent="seekByKeyboard(5)"
+                                    @keydown.home.prevent="$refs.audio && ($refs.audio.currentTime = 0)"
+                                    @keydown.end.prevent="$refs.audio && duration && ($refs.audio.currentTime = duration)">
                                     <div class="progress-bar-bg">
-                                        <div class="progress-bar-fill" :style="{ width: progressPercent + '%' }"></div>
+                                        <div class="progress-bar-fill" :style="{ transform: 'scaleX(' + (progressPercent / 100) + ')' }"></div>
                                         <div class="progress-bar-handle" :style="{ left: progressPercent + '%' }"></div>
                                     </div>
                                 </div>
-                                <div class="time-display">
+                                <div class="time-display" aria-hidden="true">
                                     <span>{{ formatTime(currentTime) }}</span>
                                     <span>{{ formatTime(duration) }}</span>
                                 </div>
                             </div>
 
-                            <!-- Main Controls -->
+                            <!-- Main controls -->
                             <div class="main-controls" v-show="!showQueue">
                                 <button
+                                    type="button"
                                     @click="toggleShuffle"
                                     class="control-btn secondary"
                                     :class="{ active: isShuffled }"
+                                    :aria-pressed="isShuffled"
                                     :aria-label="t('shuffle')">
-                                    <i class="fas fa-shuffle"></i>
+                                    <i class="fas fa-shuffle" aria-hidden="true"></i>
                                 </button>
 
-                                <button @click="playPrevious" class="control-btn" :aria-label="t('previous')">
-                                    <i class="fas fa-backward-step"></i>
+                                <button type="button" @click="playPrevious" class="control-btn" :aria-label="t('previous')">
+                                    <i class="fas fa-backward-step" aria-hidden="true"></i>
                                 </button>
 
-                                <button @click="togglePlayPause" @mousedown="createRipple" class="control-btn play-btn ripple-container" :aria-label="isPlaying ? t('pause') : t('play')">
-                                    <i :class="isPlaying ? 'fas fa-pause' : 'fas fa-play'"></i>
+                                <button type="button" @click="togglePlayPause" @mousedown="createRipple" class="control-btn play-btn ripple-container" :aria-label="isPlaying ? t('pause') : t('play')">
+                                    <i :class="isPlaying ? 'fas fa-pause' : 'fas fa-play'" aria-hidden="true"></i>
                                 </button>
 
-                                <button @click="playNext" class="control-btn" :aria-label="t('next')">
-                                    <i class="fas fa-forward-step"></i>
+                                <button type="button" @click="playNext" class="control-btn" :aria-label="t('next')">
+                                    <i class="fas fa-forward-step" aria-hidden="true"></i>
                                 </button>
 
                                 <button
+                                    type="button"
                                     @click="toggleRepeat"
                                     class="control-btn secondary"
                                     :class="{ active: repeatMode !== 'none' }"
-                                    :aria-label="t('repeat')">
-                                    <i class="fas fa-repeat"></i>
-                                    <span v-if="repeatMode === 'one'" class="repeat-one-badge">1</span>
+                                    :aria-pressed="repeatMode !== 'none'"
+                                    :aria-label="t('repeat') + (repeatMode !== 'none' ? ' — ' + t(repeatMode === 'one' ? 'repeatOne' : 'repeatAll') : '')">
+                                    <i class="fas fa-repeat" aria-hidden="true"></i>
+                                    <span v-if="repeatMode === 'one'" class="repeat-one-badge" aria-hidden="true">1</span>
                                 </button>
                             </div>
 
-                            <!-- Volume & Extra Controls -->
+                            <!-- Volume -->
                             <div class="extra-controls" v-show="!showQueue">
                                 <div class="volume-control">
-                                    <button @click="toggleMute" class="volume-btn">
-                                        <i :class="volumeIcon"></i>
+                                    <button type="button" @click="toggleMute" class="volume-btn" :aria-pressed="isMuted" :aria-label="isMuted ? t('unmute') : t('mute')">
+                                        <i :class="volumeIcon" aria-hidden="true"></i>
                                     </button>
                                     <div class="volume-slider-container">
                                         <input
@@ -458,8 +550,9 @@
                                             step="0.01"
                                             :value="volume"
                                             @input="adjustVolume"
-                                            aria-label="Volume">
-                                        <div class="volume-fill" :style="{ width: (volume * 100) + '%' }"></div>
+                                            :aria-label="t('volume')"
+                                            :aria-valuetext="Math.round(volume * 100) + '%'">
+                                        <div class="volume-fill" :style="{ width: (volume * 100) + '%' }" aria-hidden="true"></div>
                                     </div>
                                 </div>
                             </div>
@@ -467,22 +560,51 @@
                     </div>
                 </transition>
 
-            </div>
+                <!-- Keyboard shortcuts modal -->
+                <transition name="fade">
+                    <div v-if="showShortcuts" class="shortcuts-modal" role="dialog" aria-modal="true" aria-labelledby="shortcuts-title" @click.self="showShortcuts = false">
+                        <div class="shortcuts-card">
+                            <div class="shortcuts-header">
+                                <h2 id="shortcuts-title">{{ t('shortcutsHelp') }}</h2>
+                                <button type="button" @click="showShortcuts = false" class="icon-button" :aria-label="t('close')">
+                                    <i class="fas fa-times" aria-hidden="true"></i>
+                                </button>
+                            </div>
+                            <dl class="shortcuts-list">
+                                <div><dt><kbd>Space</kbd></dt><dd>{{ t('play') }} / {{ t('pause') }}</dd></div>
+                                <div><dt><kbd>←</kbd> / <kbd>→</kbd></dt><dd>{{ currentLang === 'fr' ? 'Reculer / Avancer 10s' : 'Seek -10s / +10s' }}</dd></div>
+                                <div><dt><kbd>Shift</kbd>+<kbd>←</kbd>/<kbd>→</kbd></dt><dd>{{ t('previous') }} / {{ t('next') }}</dd></div>
+                                <div><dt><kbd>↑</kbd> / <kbd>↓</kbd></dt><dd>{{ t('volume') }}</dd></div>
+                                <div><dt><kbd>M</kbd></dt><dd>{{ t('mute') }}</dd></div>
+                                <div><dt><kbd>S</kbd></dt><dd>{{ t('shuffle') }}</dd></div>
+                                <div><dt><kbd>R</kbd></dt><dd>{{ t('repeat') }}</dd></div>
+                                <div><dt><kbd>L</kbd></dt><dd>{{ t('addToFavorites') }}</dd></div>
+                                <div><dt><kbd>F</kbd></dt><dd>{{ t('openPlayer') }}</dd></div>
+                                <div><dt><kbd>Esc</kbd></dt><dd>{{ t('close') }}</dd></div>
+                                <div><dt><kbd>?</kbd></dt><dd>{{ t('shortcutsHelp') }}</dd></div>
+                            </dl>
+                        </div>
+                    </div>
+                </transition>
+
+            </main>
         </transition>
 
-        <!-- Audio Element -->
+        <!-- Audio element -->
         <audio
             ref="audio"
+            crossorigin="anonymous"
+            preload="metadata"
             @timeupdate="updateTime"
             @ended="songEnded"
             @loadedmetadata="onLoadedMetadata"
             @canplay="onCanPlay"
-            preload="auto">
+            @error="onAudioError">
         </audio>
 
-        <!-- Toast Notification -->
+        <!-- Toast (status only — non-urgent) -->
         <transition name="fade">
-            <div v-if="showToast" class="toast" role="alert" aria-live="polite">
+            <div v-if="showToast" class="toast" role="status" aria-live="polite" aria-atomic="true">
                 {{ toastMessage }}
             </div>
         </transition>
