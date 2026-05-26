@@ -357,6 +357,9 @@
                         </button>
 
                         <div class="mini-controls">
+                            <button type="button" @click.stop="toggleMute" class="mini-like" :aria-pressed="isMuted" :aria-label="isMuted ? t('unmute') : t('mute')" :title="isMuted ? t('unmute') : t('mute')">
+                                <i :class="volumeIcon" aria-hidden="true"></i>
+                            </button>
                             <button type="button" @click.stop="toggleLike(currentSong.id)" class="mini-like" :class="{ liked: likedSongs.includes(currentSong.id) }" :aria-pressed="likedSongs.includes(currentSong.id)" :aria-label="likedSongs.includes(currentSong.id) ? t('removeFromFavorites') : t('addToFavorites')">
                                 <i :class="likedSongs.includes(currentSong.id) ? 'fas fa-heart' : 'far fa-heart'" aria-hidden="true"></i>
                             </button>
@@ -365,9 +368,6 @@
                             </button>
                             <button type="button" @click.stop="playNext" class="mini-next" :aria-label="t('nextTrack')">
                                 <i class="fas fa-forward" aria-hidden="true"></i>
-                            </button>
-                            <button type="button" @click.stop="closeMiniPlayer" class="mini-close" :aria-label="t('stopPlayback')" :title="t('stopPlayback')">
-                                <i class="fas fa-times" aria-hidden="true"></i>
                             </button>
                         </div>
                     </div>

@@ -524,11 +524,13 @@ img { max-width: 100%; height: auto; display: block; }
    PLAYER SCREEN
    ============================================ */
 .player-screen {
-    min-height: 100vh;
-    min-height: 100dvh;
+    height: 100vh;
+    height: 100dvh;
     background: var(--bg-primary);
-    padding-top: var(--safe-top);
     position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 /* Subtle ambient background for player */
@@ -718,6 +720,8 @@ img { max-width: 100%; height: auto; display: block; }
    SONG LIST
    ============================================ */
 .song-list-container {
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
     padding: 0 var(--space-lg);
     padding-bottom: calc(var(--mini-player-h) + var(--space-xl) + var(--safe-bottom));
@@ -2065,8 +2069,9 @@ kbd {
 /* Header respects notch on iOS */
 .player-header {
     padding-top: calc(var(--space-md) + var(--safe-top));
+    flex-shrink: 0;
 }
-.player-screen { padding-top: 0; }
+.search-container, .filter-section { flex-shrink: 0; }
 
 /* Queue panel respects safe areas */
 .queue-panel {

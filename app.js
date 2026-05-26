@@ -15,6 +15,7 @@ class AudioVisualizer {
         this.audioContext = null;
         this.analyser = null;
         this.source = null;
+        this.gainNode = null;       // controls volume in Web Audio graph
         this.canvas = null;
         this.ctx = null;
         this.animationId = null;
@@ -43,8 +44,12 @@ class AudioVisualizer {
             this.analyser.smoothingTimeConstant = 0.8;
             // createMediaElementSource throws if already created for this element.
             this.source = this.audioContext.createMediaElementSource(audioElement);
+            // GainNode so volume control still works after audio is routed through Web Audio
+            this.gainNode = this.audioContext.createGain();
+            this.gainNode.gain.value = audioElement.volume;
             this.source.connect(this.analyser);
-            this.analyser.connect(this.audioContext.destination);
+            this.analyser.connect(this.gainNode);
+            this.gainNode.connect(this.audioContext.destination);
             this.canvas = canvas;
             this.ctx = canvas.getContext('2d');
             this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
@@ -55,6 +60,16 @@ class AudioVisualizer {
             return true;
         } catch (e) {
             return false;
+        }
+    }
+
+    // Controls volume through the Web Audio graph (works after createMediaElementSource)
+    setGain(value) {
+        if (this.gainNode && this.audioContext) {
+            const t = this.audioContext.currentTime;
+            // Smooth ramp avoids audible clicks
+            this.gainNode.gain.cancelScheduledValues(t);
+            this.gainNode.gain.setTargetAtTime(Math.max(0, Math.min(1, value)), t, 0.01);
         }
     }
 
@@ -718,7 +733,7 @@ const app = createApp({
                 return;
             }
             audio.src = src;
-            audio.volume = this.isMuted ? 0 : this.volume;
+            this.applyVolumeToOutput(this.isMuted ? 0 : this.volume);
 
             try {
                 await audio.play();
@@ -774,6 +789,8 @@ const app = createApp({
             if (!audio || !canvas) return;
             const ok = visualizer.init(audio, canvas);
             if (!ok) visualizer.attachCanvas(canvas);
+            // Sync the gain with the current Vue volume state right after init
+            if (ok) visualizer.setGain(this.isMuted ? 0 : this.volume);
         },
 
         onAudioError() {
@@ -973,10 +990,19 @@ const app = createApp({
         // ============================================
         // Volume
         // ============================================
+        applyVolumeToOutput(value) {
+            // Set both the element volume AND the Web Audio gain.
+            // When createMediaElementSource has been called, audio.volume alone
+            // is bypassed — the GainNode in the visualizer graph is authoritative.
+            const audio = this.$refs.audio;
+            if (audio) audio.volume = value;
+            visualizer.setGain(value);
+        },
+
         adjustVolume(event) {
             this.volume = clampVolume(event.target.value);
             Storage.set('volume', this.volume);
-            if (this.$refs.audio) this.$refs.audio.volume = this.volume;
+            this.applyVolumeToOutput(this.volume);
             this.isMuted = this.volume === 0;
             if (this.volume > 0) this.previousVolume = this.volume;
         },
@@ -986,12 +1012,12 @@ const app = createApp({
             if (!audio) return;
             if (this.isMuted || this.volume === 0) {
                 this.volume = clampVolume(this.previousVolume || 0.5);
-                audio.volume = this.volume;
+                this.applyVolumeToOutput(this.volume);
                 this.isMuted = false;
             } else {
                 this.previousVolume = this.volume;
                 this.volume = 0;
-                audio.volume = 0;
+                this.applyVolumeToOutput(0);
                 this.isMuted = true;
             }
             Storage.set('volume', this.volume);
@@ -1176,14 +1202,14 @@ const app = createApp({
                 case 'ArrowUp':
                     event.preventDefault();
                     this.volume = clampVolume(this.volume + 0.05);
-                    if (this.$refs.audio) this.$refs.audio.volume = this.volume;
+                    this.applyVolumeToOutput(this.volume);
                     if (this.volume > 0) { this.isMuted = false; this.previousVolume = this.volume; }
                     Storage.set('volume', this.volume);
                     break;
                 case 'ArrowDown':
                     event.preventDefault();
                     this.volume = clampVolume(this.volume - 0.05);
-                    if (this.$refs.audio) this.$refs.audio.volume = this.volume;
+                    this.applyVolumeToOutput(this.volume);
                     this.isMuted = this.volume === 0;
                     Storage.set('volume', this.volume);
                     break;
