@@ -1,0 +1,35 @@
+{
+  "name": "suspended",
+  "version": "2.0.0",
+  "description": "SUSPENDED — Premium open-source web music player with live audio visualizer, 3-band equalizer, synced lyrics (LRCLIB), and Deezer integration.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "python -m http.server 8000",
+    "serve": "npx http-server -p 8000 -c-1",
+    "lint": "npx eslint --ext .js app.js src/",
+    "format": "npx prettier --write \"**/*.{js,html,css,json,md}\""
+  },
+  "keywords": [
+    "music",
+    "player",
+    "vue3",
+    "web-audio",
+    "deezer",
+    "lyrics",
+    "equalizer",
+    "spa",
+    "pwa"
+  ],
+  "license": "MIT",
+  "browserslist": [
+    "last 2 chrome versions",
+    "last 2 firefox versions",
+    "last 2 safari versions",
+    "last 2 edge versions"
+  ],
+  "devDependencies": {
+    "eslint": "^9.0.0",
+    "prettier": "^3.2.0"
+  }
+}

@@ -1,429 +1,67 @@
 /**
- * SUSPENDED - Premium Music Player
- * Vue 3 application with Deezer integration, audio visualizer,
- * keyboard shortcuts, full i18n and accessibility support.
+ * SUSPENDED — Premium Music Player (entry point)
+ *
+ * Vue 3 Options API app. Logic split into ES modules in src/.
+ * - src/visualizer.js — Web Audio visualizer + audio graph owner
+ * - src/equalizer.js  — 3-band BiquadFilter EQ
+ * - src/deezer.js     — Deezer public API client (JSONP)
+ * - src/lyrics.js     — LRCLIB synced lyrics
+ * - src/colors.js     — Dominant-color extraction from album art
+ * - src/i18n.js       — Translations + interpolation
+ * - src/storage.js    — localStorage helpers + recent searches / history / playlists
  */
 
 import { createApp } from 'https://unpkg.com/vue@3.4.21/dist/vue.esm-browser.prod.js';
-
-// ============================================
-// Audio Visualizer Engine
-// Bound once per audio element. Safe re-init for the same element.
-// ============================================
-class AudioVisualizer {
-    constructor() {
-        this.audioContext = null;
-        this.analyser = null;
-        this.source = null;
-        this.gainNode = null;       // controls volume in Web Audio graph
-        this.canvas = null;
-        this.ctx = null;
-        this.animationId = null;
-        this.dataArray = null;
-        this.connected = false;
-        this.isActive = false;
-        this.boundElement = null;
-        this._cachedRect = null;
-        this._resizeListener = null;
-    }
-
-    init(audioElement, canvas) {
-        // Reuse existing binding if same audio element
-        if (this.connected && this.boundElement === audioElement) {
-            if (canvas && this.canvas !== canvas) {
-                this.canvas = canvas;
-                this.ctx = canvas.getContext('2d');
-                this._cachedRect = null;
-            }
-            return true;
-        }
-        try {
-            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            this.analyser = this.audioContext.createAnalyser();
-            this.analyser.fftSize = 256;
-            this.analyser.smoothingTimeConstant = 0.8;
-            // createMediaElementSource throws if already created for this element.
-            this.source = this.audioContext.createMediaElementSource(audioElement);
-            // GainNode so volume control still works after audio is routed through Web Audio
-            this.gainNode = this.audioContext.createGain();
-            this.gainNode.gain.value = audioElement.volume;
-            this.source.connect(this.analyser);
-            this.analyser.connect(this.gainNode);
-            this.gainNode.connect(this.audioContext.destination);
-            this.canvas = canvas;
-            this.ctx = canvas.getContext('2d');
-            this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
-            this.connected = true;
-            this.boundElement = audioElement;
-            this._resizeListener = () => { this._cachedRect = null; this.resize(); };
-            window.addEventListener('resize', this._resizeListener);
-            return true;
-        } catch (e) {
-            return false;
-        }
-    }
-
-    // Controls volume through the Web Audio graph (works after createMediaElementSource)
-    setGain(value) {
-        if (this.gainNode && this.audioContext) {
-            const t = this.audioContext.currentTime;
-            // Smooth ramp avoids audible clicks
-            this.gainNode.gain.cancelScheduledValues(t);
-            this.gainNode.gain.setTargetAtTime(Math.max(0, Math.min(1, value)), t, 0.01);
-        }
-    }
-
-    attachCanvas(canvas) {
-        if (!canvas) return;
-        this.canvas = canvas;
-        this.ctx = canvas.getContext('2d');
-        this._cachedRect = null;
-    }
-
-    resize() {
-        if (!this.canvas) return;
-        const dpr = window.devicePixelRatio || 1;
-        const rect = this.canvas.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) return;
-        this.canvas.width = rect.width * dpr;
-        this.canvas.height = rect.height * dpr;
-        this.ctx.scale(dpr, dpr);
-        this._cachedRect = rect;
-    }
-
-    async start() {
-        if (!this.connected || this.isActive) return;
-        if (this.audioContext.state === 'suspended') {
-            try { await this.audioContext.resume(); } catch {}
-        }
-        this.isActive = true;
-        this.resize();
-        this.draw();
-    }
-
-    stop() {
-        this.isActive = false;
-        if (this.animationId) {
-            cancelAnimationFrame(this.animationId);
-            this.animationId = null;
-        }
-        if (this.ctx && this.canvas) {
-            const rect = this._cachedRect || this.canvas.getBoundingClientRect();
-            this.ctx.clearRect(0, 0, rect.width, rect.height);
-        }
-    }
-
-    draw() {
-        if (!this.isActive || !this.canvas || !this.ctx) return;
-        this.animationId = requestAnimationFrame(() => this.draw());
-
-        this.analyser.getByteFrequencyData(this.dataArray);
-
-        const rect = this._cachedRect || this.canvas.getBoundingClientRect();
-        const width = rect.width;
-        const height = rect.height;
-        if (!width || !height) return;
-
-        this.ctx.clearRect(0, 0, width, height);
-
-        const bufferLength = this.analyser.frequencyBinCount;
-        const barCount = Math.min(64, bufferLength);
-        const barWidth = (width / barCount) * 0.7;
-        const gap = (width / barCount) * 0.3;
-
-        for (let i = 0; i < barCount; i++) {
-            const dataIndex = Math.floor(i * bufferLength / barCount);
-            const value = this.dataArray[dataIndex];
-            const barHeight = (value / 255) * height * 0.9;
-
-            const x = i * (barWidth + gap);
-            const hue = 185 + (i / barCount) * 145;
-            const saturation = 70 + (value / 255) * 20;
-            const lightness = 55 + (value / 255) * 20;
-            const alpha = 0.6 + (value / 255) * 0.4;
-
-            this.ctx.fillStyle = `hsla(${hue}, ${saturation}%, ${lightness}%, ${alpha})`;
-            this.ctx.shadowColor = `hsla(${hue}, ${saturation}%, ${lightness}%, 0.5)`;
-            this.ctx.shadowBlur = 8;
-
-            const radius = barWidth / 2;
-            const y = height - barHeight;
-            this.ctx.beginPath();
-            this.ctx.moveTo(x, height);
-            this.ctx.lineTo(x, y + radius);
-            this.ctx.quadraticCurveTo(x, y, x + radius, y);
-            this.ctx.quadraticCurveTo(x + barWidth, y, x + barWidth, y + radius);
-            this.ctx.lineTo(x + barWidth, height);
-            this.ctx.fill();
-        }
-        this.ctx.shadowBlur = 0;
-    }
-
-    destroy() {
-        this.stop();
-        if (this._resizeListener) {
-            window.removeEventListener('resize', this._resizeListener);
-            this._resizeListener = null;
-        }
-        if (this.audioContext && this.audioContext.state !== 'closed') {
-            this.audioContext.close().catch(() => {});
-        }
-        this.connected = false;
-        this.boundElement = null;
-    }
-}
+import { AudioVisualizer } from './src/visualizer.js';
+import { Equalizer, EQ_PRESETS } from './src/equalizer.js';
+import { DeezerAPI, isSafeRemoteUrl, deezerMapTrack } from './src/deezer.js';
+import { getLyrics, activeLineIndex } from './src/lyrics.js';
+import { extractPalette, applyPaletteToRoot, resetPaletteOnRoot } from './src/colors.js';
+import { translations, interpolate, detectInitialLang } from './src/i18n.js';
+import {
+    Storage, clampVolume,
+    addRecentSearch, getRecentSearches, clearRecentSearches,
+    pushHistory, getHistory, clearHistory,
+    getPlaylists, createPlaylist, renamePlaylist, deletePlaylist,
+    addSongToPlaylist, removeSongFromPlaylist
+} from './src/storage.js';
 
 const visualizer = new AudioVisualizer();
+let equalizer = null; // lazy: needs an AudioContext, created when visualizer inits
 
-// ============================================
-// Deezer API service (JSONP — public API, no key required)
-// Validates URL origin to mitigate misuse.
-// ============================================
-const DEEZER_HOST = 'https://api.deezer.com';
+// Deezer genre seeds for the initial library fetch
+const DEEZER_GENRES = [
+    { name: 'Rap',     query: 'rap francais 2024' },
+    { name: 'Hip-Hop', query: 'hip hop hits 2024' },
+    { name: 'Pop',     query: 'pop hits 2024' },
+    { name: 'R&B',     query: 'rnb soul 2024' },
+    { name: 'Rock',    query: 'rock hits' },
+    { name: 'Électro', query: 'electronic dance 2024' }
+];
 
-function deezerJsonp(url) {
-    return new Promise((resolve, reject) => {
-        if (!url.startsWith(DEEZER_HOST)) {
-            reject(new Error('Refusing to call non-Deezer URL'));
-            return;
-        }
-        const cb = 'dz_' + Date.now() + '_' + Math.floor(Math.random() * 1e6);
-        const script = document.createElement('script');
-        const timeout = setTimeout(() => {
-            cleanup();
-            reject(new Error('Deezer API timeout'));
-        }, 10000);
+const MOODS = [
+    { key: 'moodEnergetic', query: 'energetic upbeat workout',     icon: 'fa-bolt' },
+    { key: 'moodCalm',      query: 'calm relaxing instrumental',   icon: 'fa-leaf' },
+    { key: 'moodFocus',     query: 'focus study concentration',    icon: 'fa-brain' },
+    { key: 'moodParty',     query: 'party dance hits 2024',        icon: 'fa-champagne-glasses' },
+    { key: 'moodWorkout',   query: 'workout gym motivation',       icon: 'fa-dumbbell' },
+    { key: 'moodChill',     query: 'chill lo-fi beats',            icon: 'fa-mug-hot' }
+];
 
-        function cleanup() {
-            clearTimeout(timeout);
-            try { delete window[cb]; } catch { window[cb] = undefined; }
-            if (script.parentNode) script.parentNode.removeChild(script);
-        }
-
-        window[cb] = (data) => { cleanup(); resolve(data); };
-        script.onerror = () => { cleanup(); reject(new Error('Deezer API request failed')); };
-
-        const sep = url.includes('?') ? '&' : '?';
-        script.src = `${url}${sep}output=jsonp&callback=${cb}`;
-        document.head.appendChild(script);
-    });
-}
-
-function isSafeRemoteUrl(u) {
-    if (!u) return false;
-    try {
-        const x = new URL(u);
-        if (x.protocol !== 'https:') return false;
-        return x.hostname.endsWith('.dzcdn.net') || x.hostname.endsWith('.deezer.com');
-    } catch { return false; }
-}
-
-const DeezerAPI = {
-    async search(query, limit = 8) {
-        const url = `${DEEZER_HOST}/search?q=${encodeURIComponent(query)}&limit=${limit}`;
-        const data = await deezerJsonp(url);
-        return data.data || [];
-    },
-
-    mapTrack(track, genre = '') {
-        const audio = isSafeRemoteUrl(track.preview) ? track.preview : '';
-        const image = isSafeRemoteUrl(track.album?.cover_medium) ? track.album.cover_medium : '';
-        const imageLarge = isSafeRemoteUrl(track.album?.cover_big) ? track.album.cover_big : '';
-        return {
-            id: 'dz_' + track.id, // namespace remote IDs to avoid collisions with local
-            titre: track.title_short || track.title,
-            artiste: track.artist?.name || 'Unknown',
-            album: track.album?.title || '',
-            genre: genre,
-            audio,
-            image,
-            imageLarge,
-            duree: track.duration || 30,
-            tags: genre ? [genre] : [],
-            isRemote: true,
-            deezerLink: track.link || ''
-        };
-    }
-};
-
-// ============================================
-// i18n
-// ============================================
-const translations = {
-    fr: {
-        tagline: 'Découvrez, visualisez, vibrez',
-        feature1: 'Visualisateur en direct',
-        feature2: 'Recherche Deezer',
-        feature3: 'Vos favoris',
-        startListening: 'Commencer l\'écoute',
-        accessPlayer: 'Accéder au lecteur',
-        backHome: 'Retour à l\'accueil',
-        library: 'Bibliothèque',
-        searchPlaceholder: 'Rechercher artistes, titres...',
-        searchPlaceholderDeezer: 'Rechercher sur Deezer...',
-        searchSongs: 'Rechercher des chansons',
-        clearSearch: 'Effacer la recherche',
-        all: 'Tout',
-        favorites: 'Favoris',
-        noResults: 'Aucun résultat trouvé',
-        noFavorites: 'Aucun favori. Touchez le cœur sur une chanson pour l\'ajouter.',
-        playingFrom: 'Lecture depuis',
-        queue: 'À suivre',
-        shuffle: 'Lecture aléatoire',
-        previous: 'Précédent',
-        play: 'Lecture',
-        pause: 'Pause',
-        next: 'Suivant',
-        nextTrack: 'Piste suivante',
-        repeat: 'Répéter',
-        shuffleOn: 'Lecture aléatoire activée',
-        shuffleOff: 'Lecture aléatoire désactivée',
-        repeatOff: 'Répétition désactivée',
-        repeatAll: 'Répéter tout',
-        repeatOne: 'Répéter une fois',
-        addToFavorites: 'Ajouter aux favoris',
-        removeFromFavorites: 'Retirer des favoris',
-        addedToFavorites: 'Ajouté aux favoris',
-        removedFromFavorites: 'Retiré des favoris',
-        close: 'Fermer',
-        closePlayer: 'Fermer le lecteur',
-        stopPlayback: 'Arrêter la lecture',
-        toggleQueue: 'Afficher la file d\'attente',
-        volume: 'Volume',
-        mute: 'Couper le son',
-        unmute: 'Activer le son',
-        seek: 'Position de lecture',
-        playSong: 'Lire {title} de {artist}',
-        nowPlaying: 'En lecture : {title} de {artist}',
-        errorLoading: 'Erreur lors du chargement des chansons',
-        clickPlayToStart: 'Cliquez sur lecture pour démarrer',
-        deezerUnavailable: 'Catalogue Deezer indisponible — bibliothèque locale affichée',
-        retry: 'Réessayer',
-        poweredBy: 'Propulsé par',
-        previewBadge: 'Aperçu 30s',
-        shortcutsHelp: 'Raccourcis clavier',
-        skipToContent: 'Aller au contenu principal',
-        openPlayer: 'Ouvrir le lecteur plein écran'
-    },
-    en: {
-        tagline: 'Discover, visualize, vibe',
-        feature1: 'Live visualizer',
-        feature2: 'Deezer search',
-        feature3: 'Your favorites',
-        startListening: 'Start listening',
-        accessPlayer: 'Access player',
-        backHome: 'Back to home',
-        library: 'Library',
-        searchPlaceholder: 'Search artists, songs...',
-        searchPlaceholderDeezer: 'Search on Deezer...',
-        searchSongs: 'Search songs',
-        clearSearch: 'Clear search',
-        all: 'All',
-        favorites: 'Favorites',
-        noResults: 'No results found',
-        noFavorites: 'No favorites yet. Tap the heart on any song to add one.',
-        playingFrom: 'Playing from',
-        queue: 'Up next',
-        shuffle: 'Shuffle',
-        previous: 'Previous',
-        play: 'Play',
-        pause: 'Pause',
-        next: 'Next',
-        nextTrack: 'Next track',
-        repeat: 'Repeat',
-        shuffleOn: 'Shuffle enabled',
-        shuffleOff: 'Shuffle disabled',
-        repeatOff: 'Repeat disabled',
-        repeatAll: 'Repeat all',
-        repeatOne: 'Repeat one',
-        addToFavorites: 'Add to favorites',
-        removeFromFavorites: 'Remove from favorites',
-        addedToFavorites: 'Added to favorites',
-        removedFromFavorites: 'Removed from favorites',
-        close: 'Close',
-        closePlayer: 'Close player',
-        stopPlayback: 'Stop playback',
-        toggleQueue: 'Toggle queue',
-        volume: 'Volume',
-        mute: 'Mute',
-        unmute: 'Unmute',
-        seek: 'Seek position',
-        playSong: 'Play {title} by {artist}',
-        nowPlaying: 'Now playing: {title} by {artist}',
-        errorLoading: 'Error loading songs',
-        clickPlayToStart: 'Click play to start',
-        deezerUnavailable: 'Deezer catalog unavailable — showing local library',
-        retry: 'Retry',
-        poweredBy: 'Powered by',
-        previewBadge: '30s preview',
-        shortcutsHelp: 'Keyboard shortcuts',
-        skipToContent: 'Skip to main content',
-        openPlayer: 'Open full screen player'
-    }
-};
-
-function interpolate(str, params) {
-    if (!params) return str;
-    return str.replace(/\{(\w+)\}/g, (_, k) => params[k] ?? '');
-}
-
-// ============================================
-// localStorage helpers (safe)
-// ============================================
-const Storage = {
-    get(key, defaultValue = null) {
-        try {
-            const item = localStorage.getItem(key);
-            return item === null ? defaultValue : JSON.parse(item);
-        } catch {
-            return defaultValue;
-        }
-    },
-    set(key, value) {
-        try {
-            localStorage.setItem(key, JSON.stringify(value));
-            return true;
-        } catch {
-            return false;
-        }
-    }
-};
-
-function clampVolume(v) {
-    const n = parseFloat(v);
-    if (!Number.isFinite(n)) return 0.8;
-    return Math.max(0, Math.min(1, n));
-}
-
-function detectInitialLang() {
-    const stored = Storage.get('lang', null);
-    if (stored === 'fr' || stored === 'en') return stored;
-    if (typeof navigator !== 'undefined' && navigator.language) {
-        return navigator.language.toLowerCase().startsWith('fr') ? 'fr' : 'en';
-    }
-    return 'fr';
-}
-
-// ============================================
-// Vue application
-// ============================================
 const app = createApp({
     data() {
         return {
-            // App state
             isLoading: true,
             currentPage: 'home',
             currentLang: detectInitialLang(),
 
-            // Catalog
             songs: [],
             currentSong: null,
-            playbackSource: 'library', // 'library' | 'search' — drives next/prev navigation
+            playbackSource: 'library', // 'library' | 'search' | 'charts' | 'mood' | 'history' | 'playlist'
             usingDeezer: false,
             deezerLoadFailed: false,
             songsLoaded: false,
 
-            // Playback
             currentTime: 0,
             duration: 0,
             volume: clampVolume(Storage.get('volume', 0.8)),
@@ -431,48 +69,59 @@ const app = createApp({
             isMuted: false,
             previousVolume: 0.8,
 
-            // Features
             isShuffled: Storage.get('shuffle', false) === true,
             repeatMode: ['none', 'all', 'one'].includes(Storage.get('repeat', 'none'))
                 ? Storage.get('repeat', 'none') : 'none',
             likedSongs: Array.isArray(Storage.get('likedSongs', [])) ? Storage.get('likedSongs', []) : [],
 
-            // UI state
             searchTerm: '',
             activeFilter: 'all',
             showFullPlayer: false,
             showQueue: false,
             showShortcuts: false,
+            showAbout: false,
+            showEqualizer: false,
+            showLyrics: false,
+            showPlaylistPicker: false,
+            playlistPickerSong: null,
+            showSearchSuggestions: false,
             seeking: false,
+            seekHover: { active: false, time: 0, x: 0 },
 
-            // Toast
             showToast: false,
             toastMessage: '',
-
-            // Live region for screen readers
             announceMessage: '',
 
-            // Shuffle state
             shuffleHistory: [],
             shuffleIndex: -1,
-
-            // Visualizer toggle
             showVisualizer: true,
 
-            // Floating notes (decorative)
-            floatingNotes: [],
-
-            // Deezer
-            deezerGenres: [
-                { name: 'Rap', query: 'rap francais 2024' },
-                { name: 'Hip-Hop', query: 'hip hop hits 2024' },
-                { name: 'Pop', query: 'pop hits 2024' },
-                { name: 'R&B', query: 'rnb soul 2024' },
-                { name: 'Rock', query: 'rock hits' },
-                { name: 'Électro', query: 'electronic dance 2024' }
-            ],
+            // Search
+            deezerGenres: DEEZER_GENRES,
+            moods: MOODS,
             searchResults: [],
-            isSearchingDeezer: false
+            isSearchingDeezer: false,
+            recentSearches: getRecentSearches(),
+
+            // History / charts / mood / playlists
+            playHistory: getHistory(),
+            chartTracks: [],
+            moodTracks: [],
+            activeMood: null,
+            isLoadingCharts: false,
+            isLoadingMood: false,
+            playlists: getPlaylists(),
+
+            // Lyrics
+            lyrics: null,        // { synced, lines }
+            lyricsLoading: false,
+            lyricsLineIndex: -1,
+
+            // EQ state
+            eqState: { bass: 0, mid: 0, treble: 0 },
+
+            // Dynamic palette
+            dynamicPalette: null
         };
     },
 
@@ -486,37 +135,44 @@ const app = createApp({
 
         uniqueGenres() {
             const genres = new Set();
-            this.songs.forEach(song => { if (song.genre) genres.add(song.genre); });
+            this.songs.forEach(s => { if (s.genre) genres.add(s.genre); });
             return Array.from(genres).sort();
         },
 
-        // Active list driving display + next/prev navigation
         activeList() {
-            if (this.searchTerm.trim() && this.searchResults.length > 0) {
-                return this.searchResults;
-            }
+            if (this.searchTerm.trim() && this.searchResults.length > 0) return this.searchResults;
+            if (this.activeFilter === 'recent') return this.playHistory;
+            if (this.activeFilter === 'charts') return this.chartTracks;
+            if (this.activeFilter === 'mood' && this.activeMood) return this.moodTracks;
             return this.songs;
         },
 
         filteredSongs() {
-            if (this.searchTerm.trim() && this.searchResults.length > 0) {
-                return this.searchResults;
-            }
+            if (this.activeFilter === 'recent') return this.playHistory;
+            if (this.activeFilter === 'charts') return this.chartTracks;
+            if (this.activeFilter === 'mood' && this.activeMood) return this.moodTracks;
+            if (this.searchTerm.trim() && this.searchResults.length > 0) return this.searchResults;
 
             let result = this.songs;
             const term = this.searchTerm.trim().toLowerCase();
             if (term) {
-                result = result.filter(song =>
-                    song.titre.toLowerCase().includes(term) ||
-                    song.artiste.toLowerCase().includes(term) ||
-                    (song.tags || []).some(tag => tag.toLowerCase().includes(term))
+                result = result.filter(s =>
+                    s.titre.toLowerCase().includes(term) ||
+                    s.artiste.toLowerCase().includes(term) ||
+                    (s.tags || []).some(tag => tag.toLowerCase().includes(term))
                 );
             }
-
             if (this.activeFilter === 'favorites') {
-                result = result.filter(song => this.likedSongs.includes(song.id));
-            } else if (this.activeFilter !== 'all') {
-                result = result.filter(song => song.genre === this.activeFilter);
+                result = result.filter(s => this.likedSongs.includes(s.id));
+            } else if (this.activeFilter !== 'all' && this.activeFilter !== 'recent' &&
+                this.activeFilter !== 'charts' && this.activeFilter !== 'mood' &&
+                !this.activeFilter.startsWith('playlist:')) {
+                result = result.filter(s => s.genre === this.activeFilter);
+            }
+            if (this.activeFilter.startsWith && this.activeFilter.startsWith('playlist:')) {
+                const id = this.activeFilter.slice('playlist:'.length);
+                const p = this.playlists.find(x => x.id === id);
+                return p ? p.songs : [];
             }
             return result;
         },
@@ -533,13 +189,8 @@ const app = createApp({
             return 'fas fa-volume-high';
         },
 
-        repeatIcon() {
-            return this.repeatMode === 'one' ? 'fas fa-repeat' : 'fas fa-repeat';
-        },
-
         queueList() {
-            const source = this.playbackSource === 'search' && this.searchResults.length
-                ? this.searchResults : this.songs;
+            const source = this.filteredSongs;
             if (!this.currentSong) return source;
             if (this.isShuffled && this.shuffleHistory.length > 0) {
                 return this.shuffleHistory.slice(this.shuffleIndex);
@@ -547,23 +198,30 @@ const app = createApp({
             const idx = source.findIndex(s => s.id === this.currentSong.id);
             if (idx === -1) return source;
             return [...source.slice(idx), ...source.slice(0, idx)];
+        },
+
+        canShare() {
+            return typeof navigator !== 'undefined' && (!!navigator.share || !!navigator.clipboard);
+        },
+
+        currentLyricsLine() {
+            if (!this.lyrics || this.lyricsLineIndex < 0) return null;
+            return this.lyrics.lines[this.lyricsLineIndex] || null;
         }
     },
 
     methods: {
-        // ============================================
-        // Navigation
-        // ============================================
+        // === Navigation ===
         goToPlayer() { this.currentPage = 'player'; },
         goBack() {
             this.currentPage = 'home';
             this.showFullPlayer = false;
             this.showQueue = false;
+            this.showLyrics = false;
+            this.showEqualizer = false;
         },
 
-        // ============================================
-        // Language
-        // ============================================
+        // === Language ===
         setLanguage(lang) {
             if (lang !== 'fr' && lang !== 'en') return;
             this.currentLang = lang;
@@ -573,36 +231,28 @@ const app = createApp({
         },
 
         updateDocumentTitle() {
-            if (this.currentSong) {
-                document.title = `${this.currentSong.titre} — ${this.currentSong.artiste} • SUSPENDED`;
-            } else {
-                document.title = this.currentLang === 'fr'
-                    ? 'SUSPENDED — Lecteur de musique'
-                    : 'SUSPENDED — Music Player';
-            }
+            document.title = this.currentSong
+                ? `${this.currentSong.titre} — ${this.currentSong.artiste} • SUSPENDED`
+                : (this.currentLang === 'fr' ? 'SUSPENDED — Lecteur de musique' : 'SUSPENDED — Music Player');
         },
 
-        // ============================================
-        // Data loading
-        // ============================================
+        // === Data loading ===
         async fetchSongs() {
             try {
-                const allSongs = [];
-                const fetchPromises = this.deezerGenres.map(async (genre) => {
-                    try {
-                        const tracks = await DeezerAPI.search(genre.query, 5);
-                        return tracks
-                            .filter(t => t.preview && isSafeRemoteUrl(t.preview))
-                            .map(t => DeezerAPI.mapTrack(t, genre.name));
-                    } catch {
-                        return [];
-                    }
-                });
-                const results = await Promise.allSettled(fetchPromises);
-                results.forEach(r => { if (r.status === 'fulfilled') allSongs.push(...r.value); });
-
-                if (allSongs.length > 0) {
-                    this.songs = allSongs;
+                const all = [];
+                const results = await Promise.allSettled(
+                    DEEZER_GENRES.map(async (g) => {
+                        try {
+                            const tracks = await DeezerAPI.search(g.query, 5);
+                            return tracks
+                                .filter(t => t.preview && isSafeRemoteUrl(t.preview))
+                                .map(t => deezerMapTrack(t, g.name));
+                        } catch { return []; }
+                    })
+                );
+                results.forEach(r => { if (r.status === 'fulfilled') all.push(...r.value); });
+                if (all.length > 0) {
+                    this.songs = all;
                     this.usingDeezer = true;
                     this.deezerLoadFailed = false;
                 } else {
@@ -619,9 +269,9 @@ const app = createApp({
 
         async fetchLocalSongs() {
             try {
-                const response = await fetch('data/chansons.json');
-                if (!response.ok) throw new Error('HTTP ' + response.status);
-                const data = await response.json();
+                const res = await fetch('data/chansons.json');
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                const data = await res.json();
                 this.songs = Array.isArray(data) ? data : [];
                 this.usingDeezer = false;
             } catch {
@@ -636,34 +286,56 @@ const app = createApp({
             await this.fetchSongs();
         },
 
-        // ============================================
-        // URL helpers
-        // ============================================
-        getSongImage(song) {
-            if (!song || !song.image) return '';
-            if (song.isRemote || song.image.startsWith('http')) {
-                return isSafeRemoteUrl(song.image) ? song.image : '';
-            }
-            return 'images/' + encodeURI(song.image);
+        async loadCharts() {
+            if (!this.usingDeezer || this.chartTracks.length > 0) return;
+            this.isLoadingCharts = true;
+            try {
+                const tracks = await DeezerAPI.chart(20);
+                this.chartTracks = tracks
+                    .filter(t => t.preview && isSafeRemoteUrl(t.preview))
+                    .map(t => deezerMapTrack(t, 'Charts'));
+            } catch { /* silent */ }
+            this.isLoadingCharts = false;
         },
 
+        async loadMood(mood) {
+            if (!this.usingDeezer) return;
+            this.activeMood = mood.key;
+            this.activeFilter = 'mood';
+            this.isLoadingMood = true;
+            this.moodTracks = [];
+            try {
+                const tracks = await DeezerAPI.search(mood.query, 20);
+                this.moodTracks = tracks
+                    .filter(t => t.preview && isSafeRemoteUrl(t.preview))
+                    .map(t => deezerMapTrack(t, this.t(mood.key)));
+            } catch { /* silent */ }
+            this.isLoadingMood = false;
+        },
+
+        selectFilter(filter) {
+            this.activeFilter = filter;
+            if (filter === 'charts' && this.chartTracks.length === 0) this.loadCharts();
+        },
+
+        // === URL helpers ===
+        getSongImage(song) {
+            if (!song || !song.image) return '';
+            if (song.isRemote || song.image.startsWith('http')) return isSafeRemoteUrl(song.image) ? song.image : '';
+            return 'images/' + encodeURI(song.image);
+        },
         getSongImageLarge(song) {
             if (!song) return '';
             if (song.imageLarge && isSafeRemoteUrl(song.imageLarge)) return song.imageLarge;
             return this.getSongImage(song);
         },
-
         getSongAudio(song) {
             if (!song || !song.audio) return '';
-            if (song.isRemote || song.audio.startsWith('http')) {
-                return isSafeRemoteUrl(song.audio) ? song.audio : '';
-            }
+            if (song.isRemote || song.audio.startsWith('http')) return isSafeRemoteUrl(song.audio) ? song.audio : '';
             return 'audio/' + encodeURI(song.audio);
         },
 
-        // ============================================
-        // Search (live Deezer with token-based race protection)
-        // ============================================
+        // === Search ===
         onSearchInput() {
             clearTimeout(this._searchDebounceTimer);
             const term = this.searchTerm.trim();
@@ -681,15 +353,36 @@ const app = createApp({
                 this.isSearchingDeezer = true;
                 try {
                     const tracks = await DeezerAPI.search(term, 15);
-                    if (requestId !== this._searchRequestId) return; // stale
+                    if (requestId !== this._searchRequestId) return;
                     this.searchResults = tracks
                         .filter(t => t.preview && isSafeRemoteUrl(t.preview))
-                        .map(t => DeezerAPI.mapTrack(t, ''));
-                } catch { /* surfaced via empty results */ }
-                if (requestId === this._searchRequestId) {
-                    this.isSearchingDeezer = false;
-                }
+                        .map(t => deezerMapTrack(t, ''));
+                } catch { /* silent */ }
+                if (requestId === this._searchRequestId) this.isSearchingDeezer = false;
             }, 400);
+        },
+
+        onSearchFocus() { this.showSearchSuggestions = true; },
+        onSearchBlur() {
+            // Defer to allow click on suggestion to register
+            setTimeout(() => { this.showSearchSuggestions = false; }, 150);
+        },
+
+        commitSearch() {
+            const t = this.searchTerm.trim();
+            if (t) { this.recentSearches = addRecentSearch(t); }
+            this.showSearchSuggestions = false;
+        },
+
+        useSuggestion(term) {
+            this.searchTerm = term;
+            this.showSearchSuggestions = false;
+            this.onSearchInput();
+        },
+
+        clearRecent() {
+            clearRecentSearches();
+            this.recentSearches = [];
         },
 
         clearSearch() {
@@ -701,25 +394,22 @@ const app = createApp({
             if (this.playbackSource === 'search') this.playbackSource = 'library';
         },
 
-        // ============================================
-        // Playback
-        // ============================================
+        // === Playback ===
         async playSong(song) {
             if (!song) return;
             const audio = this.$refs.audio;
             if (!audio) return;
 
-            // Same song → toggle play/pause
-            if (this.currentSong?.id === song.id) {
-                this.togglePlayPause();
-                return;
-            }
+            if (this.currentSong?.id === song.id) { this.togglePlayPause(); return; }
 
-            // Mark which list we're playing from (library vs search results)
-            this.playbackSource = (this.searchTerm.trim() && this.searchResults.some(s => s.id === song.id))
-                ? 'search' : 'library';
+            // Determine playback source from active filter
+            if (this.activeFilter === 'recent') this.playbackSource = 'history';
+            else if (this.activeFilter === 'charts') this.playbackSource = 'charts';
+            else if (this.activeFilter === 'mood') this.playbackSource = 'mood';
+            else if (this.activeFilter.startsWith && this.activeFilter.startsWith('playlist:')) this.playbackSource = 'playlist';
+            else if (this.searchTerm.trim() && this.searchResults.some(s => s.id === song.id)) this.playbackSource = 'search';
+            else this.playbackSource = 'library';
 
-            // Track this play attempt to bail on rapid switching
             const playToken = ++this._playToken;
 
             this.currentSong = song;
@@ -727,20 +417,21 @@ const app = createApp({
             this.duration = 0;
 
             const src = this.getSongAudio(song);
-            if (!src) {
-                this.toast(this.t('errorLoading'));
-                this.isPlaying = false;
-                return;
-            }
+            if (!src) { this.toast(this.t('errorLoading')); this.isPlaying = false; return; }
+
             audio.src = src;
             this.applyVolumeToOutput(this.isMuted ? 0 : this.volume);
 
+            // Commit search term to recent searches when user actually plays a result
+            if (this.playbackSource === 'search' && this.searchTerm.trim()) {
+                this.recentSearches = addRecentSearch(this.searchTerm.trim());
+            }
+
             try {
                 await audio.play();
-                if (playToken !== this._playToken) return; // stale
+                if (playToken !== this._playToken) return;
                 this.isPlaying = true;
 
-                // Initialize visualizer if canvas available (full player open)
                 this.tryInitVisualizer();
                 if (this.showVisualizer) visualizer.start();
 
@@ -749,7 +440,13 @@ const app = createApp({
                 this.announce(this.t('nowPlaying', { title: song.titre, artist: song.artiste }));
 
                 if (this.isShuffled) this.addToShuffleHistory(song);
-                this.spawnFloatingNotes();
+
+                // Persist history
+                this.playHistory = pushHistory(song);
+
+                // Async: dynamic palette + lyrics
+                this.refreshDynamicPalette();
+                this.refreshLyrics();
             } catch (error) {
                 if (error.name === 'AbortError') return;
                 if (error.name === 'NotAllowedError') {
@@ -787,10 +484,16 @@ const app = createApp({
             const audio = this.$refs.audio;
             const canvas = this.$refs.visualizerCanvas;
             if (!audio || !canvas) return;
+            const justInited = !visualizer.connected;
             const ok = visualizer.init(audio, canvas);
-            if (!ok) visualizer.attachCanvas(canvas);
-            // Sync the gain with the current Vue volume state right after init
-            if (ok) visualizer.setGain(this.isMuted ? 0 : this.volume);
+            if (!ok) { visualizer.attachCanvas(canvas); return; }
+            if (justInited) {
+                // Create the EQ now that we have an AudioContext, and insert into graph.
+                equalizer = new Equalizer(visualizer.audioContext);
+                visualizer.insertChain({ input: equalizer.input, output: equalizer.output });
+                this.eqState = equalizer.getState();
+            }
+            visualizer.setGain(this.isMuted ? 0 : this.volume);
         },
 
         onAudioError() {
@@ -800,73 +503,36 @@ const app = createApp({
         },
 
         playNext() {
-            const list = this.playbackSource === 'search' && this.searchResults.length
-                ? this.searchResults : this.songs;
+            const list = this.filteredSongs;
             if (!list.length) return;
-
             let nextSong;
-            if (this.isShuffled) {
-                nextSong = this.getNextShuffleSong();
-            } else if (!this.currentSong) {
-                nextSong = list[0];
-            } else {
+            if (this.isShuffled) nextSong = this.getNextShuffleSong();
+            else if (!this.currentSong) nextSong = list[0];
+            else {
                 const idx = list.findIndex(s => s.id === this.currentSong.id);
-                if (idx === -1) {
-                    nextSong = list[0];
-                } else {
-                    nextSong = list[(idx + 1) % list.length];
-                }
+                nextSong = idx === -1 ? list[0] : list[(idx + 1) % list.length];
             }
             if (nextSong) this.playSong(nextSong);
         },
 
         playPrevious() {
-            const list = this.playbackSource === 'search' && this.searchResults.length
-                ? this.searchResults : this.songs;
+            const list = this.filteredSongs;
             if (!list.length) return;
-
-            // > 3s in: restart current
             if (this.currentTime > 3 && this.$refs.audio) {
                 this.$refs.audio.currentTime = 0;
                 this.currentTime = 0;
                 return;
             }
-
             let prevSong;
             if (this.isShuffled && this.shuffleIndex > 0) {
                 this.shuffleIndex--;
                 prevSong = this.shuffleHistory[this.shuffleIndex];
-            } else if (!this.currentSong) {
-                prevSong = list[0];
-            } else {
+            } else if (!this.currentSong) prevSong = list[0];
+            else {
                 const idx = list.findIndex(s => s.id === this.currentSong.id);
-                if (idx === -1) {
-                    prevSong = list[0];
-                } else {
-                    prevSong = list[(idx - 1 + list.length) % list.length];
-                }
+                prevSong = idx === -1 ? list[0] : list[(idx - 1 + list.length) % list.length];
             }
             if (prevSong) this.playSong(prevSong);
-        },
-
-        closeMiniPlayer() {
-            const audio = this.$refs.audio;
-            if (audio) {
-                audio.pause();
-                audio.currentTime = 0;
-            }
-            this.isPlaying = false;
-            this.currentSong = null;
-            this.currentTime = 0;
-            this.duration = 0;
-            this.showFullPlayer = false;
-            this.showQueue = false;
-            this.shuffleHistory = [];
-            this.shuffleIndex = -1;
-            visualizer.stop();
-            this.updateDocumentTitle();
-            // Clear last session so we don't restore a closed track
-            Storage.set('lastSongId', null);
         },
 
         songEnded() {
@@ -876,14 +542,10 @@ const app = createApp({
                 audio.play().catch(() => {});
                 return;
             }
-            if (this.repeatMode === 'all') {
-                this.playNext();
-                return;
-            }
+            if (this.repeatMode === 'all') { this.playNext(); return; }
             if (this.isShuffled) {
-                if (this.peekNextShuffleSong()) {
-                    this.playNext();
-                } else {
+                if (this.peekNextShuffleSong()) this.playNext();
+                else {
                     this.isPlaying = false;
                     if (audio) audio.currentTime = 0;
                     this.currentTime = 0;
@@ -891,12 +553,10 @@ const app = createApp({
                 }
                 return;
             }
-            const list = this.playbackSource === 'search' && this.searchResults.length
-                ? this.searchResults : this.songs;
+            const list = this.filteredSongs;
             const idx = list.findIndex(s => s.id === this.currentSong?.id);
-            if (idx !== -1 && idx < list.length - 1) {
-                this.playNext();
-            } else {
+            if (idx !== -1 && idx < list.length - 1) this.playNext();
+            else {
                 this.isPlaying = false;
                 if (audio) audio.currentTime = 0;
                 this.currentTime = 0;
@@ -904,25 +564,15 @@ const app = createApp({
             }
         },
 
-        // ============================================
-        // Shuffle
-        // ============================================
+        // === Shuffle ===
         toggleShuffle() {
             this.isShuffled = !this.isShuffled;
             Storage.set('shuffle', this.isShuffled);
-            if (this.isShuffled) {
-                this.initializeShuffleQueue();
-                this.toast(this.t('shuffleOn'));
-            } else {
-                this.shuffleHistory = [];
-                this.shuffleIndex = -1;
-                this.toast(this.t('shuffleOff'));
-            }
+            if (this.isShuffled) { this.initializeShuffleQueue(); this.toast(this.t('shuffleOn')); }
+            else { this.shuffleHistory = []; this.shuffleIndex = -1; this.toast(this.t('shuffleOff')); }
         },
-
         initializeShuffleQueue() {
-            const source = this.playbackSource === 'search' && this.searchResults.length
-                ? this.searchResults : this.songs;
+            const source = this.filteredSongs;
             if (!source.length) return;
             const shuffled = [...source];
             for (let i = shuffled.length - 1; i > 0; i--) {
@@ -936,49 +586,37 @@ const app = createApp({
             this.shuffleHistory = shuffled;
             this.shuffleIndex = 0;
         },
-
         addToShuffleHistory(song) {
-            if (this.shuffleHistory.length === 0) {
-                this.initializeShuffleQueue();
-                return;
-            }
+            if (this.shuffleHistory.length === 0) { this.initializeShuffleQueue(); return; }
             const idx = this.shuffleHistory.findIndex(s => s.id === song.id);
-            if (idx !== -1) {
-                this.shuffleIndex = idx;
-            } else {
-                // Insert after current index
+            if (idx !== -1) this.shuffleIndex = idx;
+            else {
                 this.shuffleIndex = Math.min(this.shuffleIndex + 1, this.shuffleHistory.length);
                 this.shuffleHistory.splice(this.shuffleIndex, 0, song);
             }
         },
-
         peekNextShuffleSong() {
-            const nextIdx = this.shuffleIndex + 1;
-            if (nextIdx >= this.shuffleHistory.length) return null;
-            return this.shuffleHistory[nextIdx];
+            const next = this.shuffleIndex + 1;
+            return next < this.shuffleHistory.length ? this.shuffleHistory[next] : null;
         },
-
         getNextShuffleSong() {
             if (this.shuffleHistory.length === 0) {
                 this.initializeShuffleQueue();
-                if (!this.shuffleHistory.length) return null;
-                return this.shuffleHistory[0];
+                return this.shuffleHistory[0] || null;
             }
-            const nextIdx = this.shuffleIndex + 1;
-            if (nextIdx >= this.shuffleHistory.length) {
+            const next = this.shuffleIndex + 1;
+            if (next >= this.shuffleHistory.length) {
                 if (this.repeatMode === 'all') {
                     this.initializeShuffleQueue();
                     return this.shuffleHistory[0];
                 }
                 return null;
             }
-            this.shuffleIndex = nextIdx;
-            return this.shuffleHistory[nextIdx];
+            this.shuffleIndex = next;
+            return this.shuffleHistory[next];
         },
 
-        // ============================================
-        // Repeat
-        // ============================================
+        // === Repeat ===
         toggleRepeat() {
             const modes = ['none', 'all', 'one'];
             this.repeatMode = modes[(modes.indexOf(this.repeatMode) + 1) % modes.length];
@@ -987,18 +625,12 @@ const app = createApp({
             this.toast(this.t(map[this.repeatMode]));
         },
 
-        // ============================================
-        // Volume
-        // ============================================
+        // === Volume ===
         applyVolumeToOutput(value) {
-            // Set both the element volume AND the Web Audio gain.
-            // When createMediaElementSource has been called, audio.volume alone
-            // is bypassed — the GainNode in the visualizer graph is authoritative.
             const audio = this.$refs.audio;
             if (audio) audio.volume = value;
             visualizer.setGain(value);
         },
-
         adjustVolume(event) {
             this.volume = clampVolume(event.target.value);
             Storage.set('volume', this.volume);
@@ -1006,7 +638,6 @@ const app = createApp({
             this.isMuted = this.volume === 0;
             if (this.volume > 0) this.previousVolume = this.volume;
         },
-
         toggleMute() {
             const audio = this.$refs.audio;
             if (!audio) return;
@@ -1023,13 +654,11 @@ const app = createApp({
             Storage.set('volume', this.volume);
         },
 
-        // ============================================
-        // Progress / Seeking
-        // ============================================
+        // === Seeking ===
         updateTime() {
             if (!this.seeking && this.$refs.audio) {
                 this.currentTime = this.$refs.audio.currentTime;
-                // Throttled save (instance prop, not reactive)
+                this.refreshLyricsLine();
                 const now = Date.now();
                 if (now - this._lastSaveTime > 5000) {
                     this._lastSaveTime = now;
@@ -1037,12 +666,8 @@ const app = createApp({
                 }
             }
         },
-
-        onLoadedMetadata() {
-            if (this.$refs.audio) this.duration = this.$refs.audio.duration;
-        },
-
-        onCanPlay() { /* ready */ },
+        onLoadedMetadata() { if (this.$refs.audio) this.duration = this.$refs.audio.duration; },
+        onCanPlay() {},
 
         startSeeking(event) {
             this.seeking = true;
@@ -1050,36 +675,30 @@ const app = createApp({
             document.addEventListener('mousemove', this.handleSeek);
             document.addEventListener('mouseup', this.stopSeeking);
         },
-
         startSeekingTouch(event) {
             this.seeking = true;
             this.handleSeekTouch(event);
             document.addEventListener('touchmove', this.handleSeekTouch, { passive: true });
             document.addEventListener('touchend', this.stopSeeking);
         },
-
         handleSeek(event) {
             if (!this.seeking || !this.$refs.progressBar) return;
             const rect = this.$refs.progressBar.getBoundingClientRect();
             if (!rect.width) return;
             const offsetX = Math.max(0, Math.min(event.clientX - rect.left, rect.width));
-            const percent = offsetX / rect.width;
-            const newTime = percent * (this.duration || 0);
+            const newTime = (offsetX / rect.width) * (this.duration || 0);
             this.currentTime = newTime;
             if (this.$refs.audio && Number.isFinite(newTime)) this.$refs.audio.currentTime = newTime;
         },
-
         handleSeekTouch(event) {
             if (!this.seeking || !this.$refs.progressBar || !event.touches[0]) return;
             const rect = this.$refs.progressBar.getBoundingClientRect();
             if (!rect.width) return;
             const offsetX = Math.max(0, Math.min(event.touches[0].clientX - rect.left, rect.width));
-            const percent = offsetX / rect.width;
-            const newTime = percent * (this.duration || 0);
+            const newTime = (offsetX / rect.width) * (this.duration || 0);
             this.currentTime = newTime;
             if (this.$refs.audio && Number.isFinite(newTime)) this.$refs.audio.currentTime = newTime;
         },
-
         stopSeeking() {
             this.seeking = false;
             document.removeEventListener('mousemove', this.handleSeek);
@@ -1087,7 +706,6 @@ const app = createApp({
             document.removeEventListener('touchmove', this.handleSeekTouch);
             document.removeEventListener('touchend', this.stopSeeking);
         },
-
         seekByKeyboard(deltaSeconds) {
             const audio = this.$refs.audio;
             if (!audio || !this.duration) return;
@@ -1095,48 +713,171 @@ const app = createApp({
             audio.currentTime = newTime;
             this.currentTime = newTime;
         },
+        // Hover tooltip on the seek bar
+        onSeekHover(event) {
+            if (!this.$refs.progressBar || !this.duration) return;
+            const rect = this.$refs.progressBar.getBoundingClientRect();
+            if (!rect.width) return;
+            const offsetX = Math.max(0, Math.min(event.clientX - rect.left, rect.width));
+            this.seekHover = {
+                active: true,
+                time: (offsetX / rect.width) * this.duration,
+                x: offsetX
+            };
+        },
+        onSeekLeave() { this.seekHover.active = false; },
 
-        // ============================================
-        // Favorites
-        // ============================================
+        // === Favorites ===
         toggleLike(songId) {
             const idx = this.likedSongs.indexOf(songId);
-            if (idx === -1) {
-                this.likedSongs.push(songId);
-                this.toast(this.t('addedToFavorites'));
-            } else {
-                this.likedSongs.splice(idx, 1);
-                this.toast(this.t('removedFromFavorites'));
-            }
+            if (idx === -1) { this.likedSongs.push(songId); this.toast(this.t('addedToFavorites')); }
+            else { this.likedSongs.splice(idx, 1); this.toast(this.t('removedFromFavorites')); }
             Storage.set('likedSongs', this.likedSongs);
         },
 
-        // ============================================
-        // Utilities
-        // ============================================
+        // === Share ===
+        async shareCurrent() {
+            if (!this.currentSong) return;
+            const title = this.currentSong.titre;
+            const artist = this.currentSong.artiste;
+            const url = this.currentSong.deezerLink || window.location.href;
+            const text = `${title} — ${artist}`;
+            if (navigator.share) {
+                try { await navigator.share({ title, text, url }); return; } catch {}
+            }
+            if (navigator.clipboard) {
+                try { await navigator.clipboard.writeText(url); this.toast(this.t('sharedToClipboard')); } catch {}
+            }
+        },
+
+        // === Equalizer ===
+        toggleEqualizer() { this.showEqualizer = !this.showEqualizer; },
+        adjustEQ(band, event) {
+            const dB = parseFloat(event.target.value);
+            if (!equalizer) return;
+            equalizer.setBandGain(band, dB);
+            this.eqState = equalizer.getState();
+            Storage.set('eq', this.eqState);
+        },
+        applyEQPreset(name) {
+            if (!equalizer) return;
+            equalizer.setPreset(name);
+            this.eqState = equalizer.getState();
+            Storage.set('eq', this.eqState);
+        },
+        resetEQ() {
+            if (!equalizer) return;
+            equalizer.reset();
+            this.eqState = equalizer.getState();
+            Storage.set('eq', this.eqState);
+        },
+
+        // === Lyrics ===
+        toggleLyrics() {
+            this.showLyrics = !this.showLyrics;
+            if (this.showLyrics && !this.lyrics && this.currentSong) this.refreshLyrics();
+        },
+        async refreshLyrics() {
+            if (!this.currentSong) { this.lyrics = null; this.lyricsLineIndex = -1; return; }
+            this.lyrics = null;
+            this.lyricsLineIndex = -1;
+            // Abort any in-flight fetch
+            if (this._lyricsAbort) this._lyricsAbort.abort();
+            const controller = new AbortController();
+            this._lyricsAbort = controller;
+            this.lyricsLoading = true;
+            try {
+                const data = await getLyrics(this.currentSong.artiste, this.currentSong.titre, controller.signal);
+                this.lyrics = data;
+                this.lyricsLineIndex = -1;
+            } catch (err) {
+                if (err.name !== 'AbortError') this.lyrics = null;
+            } finally {
+                this.lyricsLoading = false;
+            }
+        },
+        refreshLyricsLine() {
+            if (!this.lyrics || !this.lyrics.synced) return;
+            this.lyricsLineIndex = activeLineIndex(this.lyrics.lines, this.currentTime);
+        },
+
+        // === Dynamic palette ===
+        async refreshDynamicPalette() {
+            if (!this.currentSong) {
+                this.dynamicPalette = null;
+                resetPaletteOnRoot();
+                return;
+            }
+            const url = this.getSongImageLarge(this.currentSong);
+            if (!url) { this.dynamicPalette = null; resetPaletteOnRoot(); return; }
+            try {
+                const palette = await extractPalette(url);
+                this.dynamicPalette = palette;
+                applyPaletteToRoot(palette);
+            } catch {
+                this.dynamicPalette = null;
+                resetPaletteOnRoot();
+            }
+        },
+
+        // === Playlists ===
+        openPlaylistPicker(song) {
+            this.playlistPickerSong = song;
+            this.showPlaylistPicker = true;
+        },
+        closePlaylistPicker() {
+            this.showPlaylistPicker = false;
+            this.playlistPickerSong = null;
+        },
+        promptCreatePlaylist() {
+            const name = window.prompt(this.t('playlistName'));
+            if (!name || !name.trim()) return;
+            createPlaylist(name.trim());
+            this.playlists = getPlaylists();
+            this.toast(this.t('playlistCreated'));
+        },
+        addCurrentToPlaylist(playlistId) {
+            const song = this.playlistPickerSong || this.currentSong;
+            if (!song) return;
+            addSongToPlaylist(playlistId, song);
+            this.playlists = getPlaylists();
+            this.toast(this.t('addedToPlaylist'));
+            this.closePlaylistPicker();
+        },
+        removeFromPlaylist(playlistId, songId) {
+            removeSongFromPlaylist(playlistId, songId);
+            this.playlists = getPlaylists();
+        },
+        deletePlaylistById(id) {
+            deletePlaylist(id);
+            this.playlists = getPlaylists();
+            if (this.activeFilter === 'playlist:' + id) this.activeFilter = 'all';
+            this.toast(this.t('playlistDeleted'));
+        },
+        clearPlayHistory() {
+            clearHistory();
+            this.playHistory = [];
+        },
+
+        // === Utilities ===
         formatTime(seconds) {
             if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
             const mins = Math.floor(seconds / 60);
             const secs = Math.floor(seconds % 60);
             return `${mins}:${secs.toString().padStart(2, '0')}`;
         },
-
         toast(message) {
             this.toastMessage = message;
             this.showToast = true;
             clearTimeout(this._toastTimeout);
             this._toastTimeout = setTimeout(() => { this.showToast = false; }, 2500);
         },
-
         announce(message) {
-            // Force re-announce by clearing then setting
             this.announceMessage = '';
             this.$nextTick(() => { this.announceMessage = message; });
         },
 
-        // ============================================
-        // Media Session
-        // ============================================
+        // === Media Session ===
         updateMediaSession() {
             if (!('mediaSession' in navigator) || !this.currentSong) return;
             const art = this.getSongImageLarge(this.currentSong);
@@ -1148,15 +889,13 @@ const app = createApp({
                     album: this.currentSong.album || 'SUSPENDED',
                     artwork
                 });
-            } catch { /* ignore */ }
+            } catch {}
         },
-
         updateMediaSessionState() {
             if ('mediaSession' in navigator) {
                 navigator.mediaSession.playbackState = this.isPlaying ? 'playing' : 'paused';
             }
         },
-
         setupMediaSessionHandlers() {
             if (!('mediaSession' in navigator)) return;
             try {
@@ -1165,54 +904,36 @@ const app = createApp({
                 navigator.mediaSession.setActionHandler('previoustrack', () => this.playPrevious());
                 navigator.mediaSession.setActionHandler('nexttrack', () => this.playNext());
                 navigator.mediaSession.setActionHandler('seekto', (d) => {
-                    if (this.$refs.audio && d.seekTime !== undefined) {
-                        this.$refs.audio.currentTime = d.seekTime;
-                    }
+                    if (this.$refs.audio && d.seekTime !== undefined) this.$refs.audio.currentTime = d.seekTime;
                 });
                 navigator.mediaSession.setActionHandler('seekbackward', () => this.seekByKeyboard(-10));
                 navigator.mediaSession.setActionHandler('seekforward', () => this.seekByKeyboard(10));
-            } catch { /* unsupported actions */ }
+            } catch {}
         },
 
-        // ============================================
-        // Keyboard shortcuts
-        // ============================================
+        // === Keyboard ===
         handleKeyboard(event) {
-            // Skip if typing in any form field or contenteditable; skip during IME composition
             const target = event.target;
             if (event.isComposing) return;
             if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' ||
                 target.tagName === 'SELECT' || target.isContentEditable)) return;
 
             switch (event.code) {
-                case 'Space':
-                    event.preventDefault();
-                    if (this.currentSong) this.togglePlayPause();
-                    break;
-                case 'ArrowRight':
-                    event.preventDefault();
-                    if (event.shiftKey) this.playNext();
-                    else this.seekByKeyboard(10);
-                    break;
-                case 'ArrowLeft':
-                    event.preventDefault();
-                    if (event.shiftKey) this.playPrevious();
-                    else this.seekByKeyboard(-10);
-                    break;
-                case 'ArrowUp':
-                    event.preventDefault();
+                case 'Space': event.preventDefault(); if (this.currentSong) this.togglePlayPause(); break;
+                case 'ArrowRight': event.preventDefault();
+                    if (event.shiftKey) this.playNext(); else this.seekByKeyboard(10); break;
+                case 'ArrowLeft': event.preventDefault();
+                    if (event.shiftKey) this.playPrevious(); else this.seekByKeyboard(-10); break;
+                case 'ArrowUp': event.preventDefault();
                     this.volume = clampVolume(this.volume + 0.05);
                     this.applyVolumeToOutput(this.volume);
                     if (this.volume > 0) { this.isMuted = false; this.previousVolume = this.volume; }
-                    Storage.set('volume', this.volume);
-                    break;
-                case 'ArrowDown':
-                    event.preventDefault();
+                    Storage.set('volume', this.volume); break;
+                case 'ArrowDown': event.preventDefault();
                     this.volume = clampVolume(this.volume - 0.05);
                     this.applyVolumeToOutput(this.volume);
                     this.isMuted = this.volume === 0;
-                    Storage.set('volume', this.volume);
-                    break;
+                    Storage.set('volume', this.volume); break;
                 case 'KeyM': this.toggleMute(); break;
                 case 'KeyS': this.toggleShuffle(); break;
                 case 'KeyR': this.toggleRepeat(); break;
@@ -1222,41 +943,18 @@ const app = createApp({
                     if (event.shiftKey) { event.preventDefault(); this.showShortcuts = !this.showShortcuts; }
                     break;
                 case 'Escape':
-                    if (this.showShortcuts) this.showShortcuts = false;
+                    if (this.showPlaylistPicker) this.showPlaylistPicker = false;
+                    else if (this.showShortcuts) this.showShortcuts = false;
+                    else if (this.showAbout) this.showAbout = false;
+                    else if (this.showLyrics) this.showLyrics = false;
+                    else if (this.showEqualizer) this.showEqualizer = false;
                     else if (this.showQueue) this.showQueue = false;
                     else if (this.showFullPlayer) this.showFullPlayer = false;
                     break;
             }
         },
 
-        // ============================================
-        // Visual effects
-        // ============================================
-        spawnFloatingNotes() {
-            const notes = ['♪', '♫', '♬', '♩', '🎵'];
-            const baseId = ++this._noteCounter * 1000;
-            for (let i = 0; i < 5; i++) {
-                const tid = setTimeout(() => {
-                    const note = {
-                        id: baseId + i,
-                        symbol: notes[Math.floor(Math.random() * notes.length)],
-                        left: 10 + Math.random() * 80,
-                        delay: Math.random() * 0.5,
-                        duration: 2 + Math.random() * 2
-                    };
-                    this.floatingNotes.push(note);
-                    const cleanupId = setTimeout(() => {
-                        const idx = this.floatingNotes.findIndex(n => n.id === note.id);
-                        if (idx !== -1) this.floatingNotes.splice(idx, 1);
-                        this._noteTimers.delete(cleanupId);
-                    }, note.duration * 1000);
-                    this._noteTimers.add(cleanupId);
-                    this._noteTimers.delete(tid);
-                }, i * 200);
-                this._noteTimers.add(tid);
-            }
-        },
-
+        // === Effects ===
         createRipple(event) {
             const button = event.currentTarget;
             if (!button) return;
@@ -1273,16 +971,12 @@ const app = createApp({
             setTimeout(() => circle.remove(), 600);
         },
 
-        // ============================================
-        // Session persistence
-        // ============================================
+        // === Session ===
         restoreLastSession() {
             const lastSongId = Storage.get('lastSongId');
             const lastTime = Storage.get('lastTime', 0);
             if (lastSongId === null || lastSongId === undefined) return;
-            // Only restore local tracks (remote IDs are unstable across fetches)
             if (typeof lastSongId === 'string' && lastSongId.startsWith('dz_')) return;
-
             const song = this.songs.find(s => s.id === lastSongId);
             if (!song) return;
             this.currentSong = song;
@@ -1293,24 +987,20 @@ const app = createApp({
                 const onMeta = () => {
                     audio.currentTime = lastTime;
                     this.currentTime = lastTime;
-                    audio.removeEventListener('loadedmetadata', onMeta);
                 };
                 audio.addEventListener('loadedmetadata', onMeta, { once: true });
                 this.updateDocumentTitle();
             });
         },
-
         saveSession() {
             if (this.currentSong) {
                 Storage.set('lastSongId', this.currentSong.id);
                 Storage.set('lastTime', this.currentTime);
             }
         },
-
         onVisibilityChange() {
-            if (document.visibilityState === 'hidden') {
-                this.saveSession();
-            } else if (document.visibilityState === 'visible') {
+            if (document.visibilityState === 'hidden') this.saveSession();
+            else if (document.visibilityState === 'visible') {
                 if (visualizer.audioContext && visualizer.audioContext.state === 'suspended') {
                     visualizer.audioContext.resume().catch(() => {});
                 }
@@ -1325,9 +1015,8 @@ const app = createApp({
                     this.tryInitVisualizer();
                     if (this.isPlaying && this.showVisualizer) visualizer.start();
                 });
-            } else {
-                // Pause visualizer to save CPU when canvas not visible
-                if (visualizer.isActive) visualizer.stop();
+            } else if (visualizer.isActive) {
+                visualizer.stop();
             }
         },
         currentSong(s) {
@@ -1337,14 +1026,12 @@ const app = createApp({
     },
 
     created() {
-        // Non-reactive instance props (not part of data())
         this._playToken = 0;
         this._searchRequestId = 0;
         this._searchDebounceTimer = null;
         this._toastTimeout = null;
         this._lastSaveTime = Date.now();
-        this._noteCounter = 0;
-        this._noteTimers = new Set();
+        this._lyricsAbort = null;
     },
 
     async mounted() {
@@ -1352,16 +1039,10 @@ const app = createApp({
         this.updateDocumentTitle();
 
         await this.fetchSongs();
-
-        if (this.deezerLoadFailed) {
-            this.toast(this.t('deezerUnavailable'));
-        }
+        if (this.deezerLoadFailed) this.toast(this.t('deezerUnavailable'));
 
         this.restoreLastSession();
-
-        if (this.isShuffled && this.songs.length > 0) {
-            this.initializeShuffleQueue();
-        }
+        if (this.isShuffled && this.songs.length > 0) this.initializeShuffleQueue();
 
         this.setupMediaSessionHandlers();
 
@@ -1370,7 +1051,11 @@ const app = createApp({
         window.addEventListener('beforeunload', this.saveSession);
         window.addEventListener('pagehide', this.saveSession);
 
-        // Hide loading shortly after data is ready
+        // Register service worker (non-blocking)
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js').catch(() => {});
+        }
+
         await this.$nextTick();
         setTimeout(() => { this.isLoading = false; }, 300);
     },
@@ -1384,7 +1069,7 @@ const app = createApp({
         this.stopSeeking();
         clearTimeout(this._searchDebounceTimer);
         clearTimeout(this._toastTimeout);
-        if (this._noteTimers) this._noteTimers.forEach(id => clearTimeout(id));
+        if (this._lyricsAbort) this._lyricsAbort.abort();
         visualizer.destroy();
     }
 });
