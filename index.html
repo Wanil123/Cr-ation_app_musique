@@ -12,8 +12,11 @@
     <meta name="referrer" content="strict-origin-when-cross-origin">
     <meta name="format-detection" content="telephone=no">
 
-    <!-- Content Security Policy -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://unpkg.com https://api.deezer.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com data:; img-src 'self' https://*.dzcdn.net https://e-cdns-images.dzcdn.net data:; media-src 'self' https://*.dzcdn.net https://cdns-preview-*.dzcdn.net; connect-src 'self' https://api.deezer.com; frame-ancestors 'none'; base-uri 'self'; form-action 'none'; object-src 'none'">
+    <!-- Content Security Policy
+         Note: 'unsafe-eval' is required because Vue 3's esm-browser build compiles
+         in-DOM templates at runtime via new Function(). Removing it requires pre-compiled
+         render functions (e.g. SFC + build step). -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' https://unpkg.com https://api.deezer.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com data:; img-src 'self' https: data:; media-src 'self' https:; connect-src 'self' https://api.deezer.com https://unpkg.com; frame-ancestors 'none'; base-uri 'self'; form-action 'none'; object-src 'none'">
 
     <title>SUSPENDED — Lecteur de musique</title>
 
